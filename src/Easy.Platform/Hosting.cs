@@ -8,8 +8,9 @@ namespace Easy.Platform;
 // Wiring every host shares: logging, correlation ID, /health (S16, Compose healthchecks grep for "Healthy").
 public static class Hosting
 {
-    public static WebApplicationBuilder AddEasyPlatform(this WebApplicationBuilder builder)
+    public static WebApplicationBuilder AddEasyPlatform(this WebApplicationBuilder builder, bool validateTokens = true)
     {
+        if (validateTokens) Auth.Add(builder);
         builder.Services.AddSerilog(config => Logging.Configure(config, builder.Environment.ApplicationName));
         builder.Services.AddHealthChecks();
         return builder;
@@ -18,6 +19,7 @@ public static class Hosting
     public static WebApplication UseEasyPlatform(this WebApplication app)
     {
         app.Use(CorrelationId.Handle);
+        Auth.Map(app);
         app.MapHealthChecks("/health", new()
         {
             ResponseWriter = (context, report) => context.Response.WriteAsync($"{report.Status} {app.Environment.ApplicationName}"),

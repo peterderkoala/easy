@@ -1,7 +1,16 @@
-﻿@page "/"
+@page "/"
+@inject NavigationManager Navigation
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Easy</PageTitle>
 
-<h1>Hello, world!</h1>
-
-Welcome to your new app.
+<AuthorizeView>
+    <Authorized>
+        <h1>@context.User.Identity?.Name</h1>
+        <p>Rollen: @string.Join(", ", new[] { "examiner", "admin" }.Where(context.User.IsInRole))</p>
+        <button @onclick='() => Navigation.NavigateToLogout("authentication/logout")'>Abmelden</button>
+    </Authorized>
+    <NotAuthorized>
+        <h1>Easy</h1>
+        <a href="authentication/login">Anmelden</a>
+    </NotAuthorized>
+</AuthorizeView>

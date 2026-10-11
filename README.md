@@ -31,6 +31,7 @@ Tests: `dotnet test` in the repo root.
 One line per proving path. Each spec adds its line.
 
 - [ ] Spec 1: `docker compose -f compose.dev.yml ps` shows every container healthy; `curl 127.0.0.1:8080/health/main-api` and `/health/exam-room` answer `Healthy Easy.MainApi` and `Healthy Easy.ExamRoom`; `http://127.0.0.1:8080/` loads the Blazor client.
+- [ ] Spec 2: on `http://localhost:8080/` "Anmelden" logs in through Keycloak as `admin`/`admin` (or `examiner`/`examiner`) and shows the name and roles `examiner, admin`; `curl 127.0.0.1:8080/whoami` without a token answers 401.
 
 ## License
 

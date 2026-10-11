@@ -31,7 +31,6 @@ For the planning agent. Each item needs a decision or check before the affected 
 - **Concurrent edits to the same score** [S03, S06]. "In progress" is a UI marker only. Optimistic concurrency or locking is not defined.
 - **Application conflicting decisions** [S03, S15]. Two examiners may decide differently. Resolution rule is open.
 - **Examiner role for applications unclear** [S03, S15]. "Two examiners" is not restricted to registered examiners. Confirm who may approve.
-- **Keycloak status ambiguous** [S05]. Listed as "under consideration" but client layout is written as settled.
 
 ### Gaps
 
@@ -318,11 +317,14 @@ One status per participant, split into four areas:
 
 ### Authentication
 
-- Under consideration: Keycloak for OIDC and multi-factor authentication. Initially Easy only. No existing central identity system. Keycloak would become the first central identity system, possibly reusable by other projects later.
-- One Keycloak client per service:
-  - Frontend (Blazor WebAssembly): public client. Login runs in the browser directly against Keycloak, regardless of which server delivers the frontend files.
-  - Main API, exam room service, Hangfire: confidential clients with own secret.
-- Token validation centrally via the same realm.
+- `[DECIDED]` Keycloak (26.x) for OIDC and multi-factor authentication. Initially Easy only. No existing central identity system. Keycloak becomes the first central identity system, possibly reusable by other projects later.
+- `[DECIDED]` Realm `easy`, committed as `deploy/keycloak/easy-realm.json` (dev realm: seeded `admin` and `examiner` users, MFA off, no secrets):
+  - Frontend (Blazor WebAssembly): public client `easy-web`, authorization code with PKCE S256. Login runs in the browser directly against Keycloak, regardless of which server delivers the frontend files.
+  - `easy-api`: resource-server client; every access token carries audience `easy-api`.
+  - Notification and scheduler: confidential service-account clients `easy-notification`, `easy-scheduler` (secrets from `.env`). MainApi and ExamRoom are pure resource servers without a client.
+  - Realm roles `examiner` and `admin` (composite including `examiner`), emitted as a flat `roles` claim.
+  - Access token 5 minutes, SSO session 30 minutes idle and 10 hours maximum.
+- Token validation in every service via the same realm (S09).
 - Hangfire is the scheduler for the notification service (S12).
 - Idea: store a digital signature in the examiner profile (S06).
 
@@ -661,7 +663,7 @@ Skeleton subset (decided): Cycle, Participant, Examiner (mirror of the Keycloak 
 - `[DECIDED]` Networks: only the gateway is publicly reachable, all others are on the internal network. Exception: Keycloak must also be reachable by the browser (login goes directly to it, S05), so it joins the public network behind the TLS reverse proxy. TLS termination point: open.
 - `[DECIDED]` Start-up order through healthchecks and `depends_on: service_healthy`: Postgres, RabbitMQ, SeaweedFS and Keycloak (realm import) first, then main-api (runs the migrations), then the other hosts and the gateway. One database with a `hangfire` schema, one connection string per host. Every app host exposes `/health` (answers `Healthy <host>`), which its Compose healthcheck calls; the gateway also routes `/health/main-api` and `/health/exam-room`.
 - App hosts build from the shared root `Dockerfile` (`PROJECT` build arg). Gateway routes: `/hubs/exam-room/**` to exam-room, everything else to main-api (`[PROVISIONAL]` hub path, spec 8 may change it).
-- Not written yet: the Keycloak realm import file (`deploy/keycloak/`, spec 2).
+- `[DECIDED]` Keycloak realm import: `deploy/keycloak/easy-realm.json` (S05), client secrets filled from environment placeholders. Token issuer is the browser-facing URL (`KEYCLOAK_AUTHORITY`, Keycloak `KC_HOSTNAME`); containers fetch discovery and signing keys through `Keycloak__MetadataAddress` on `keycloak:8080` (`KC_HOSTNAME_BACKCHANNEL_DYNAMIC`). Every app host except the gateway validates tokens via `Easy.Platform` (JwtBearer) and exposes the authenticated probe `/whoami`.
 
 ### Operations
 

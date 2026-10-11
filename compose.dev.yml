@@ -35,6 +35,8 @@ services:
       ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
       Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Keycloak__MetadataAddress: http://keycloak:8080/realms/easy/.well-known/openid-configuration
+      Keycloak__RequireHttpsMetadata: "false"
       Seaweed__Endpoint: http://seaweedfs:8333
       Upload__MaxBytes: ${UPLOAD_MAX_BYTES:-15728640}
       MasterSecretFile: /run/secrets/master_secret
@@ -52,6 +54,8 @@ services:
       ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
       Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Keycloak__MetadataAddress: http://keycloak:8080/realms/easy/.well-known/openid-configuration
+      Keycloak__RequireHttpsMetadata: "false"
     depends_on:
       main-api: {condition: service_healthy} # main-api runs the migrations
 
@@ -63,6 +67,8 @@ services:
       ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
       Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Keycloak__MetadataAddress: http://keycloak:8080/realms/easy/.well-known/openid-configuration
+      Keycloak__RequireHttpsMetadata: "false"
       Keycloak__ClientSecret: ${NOTIFICATION_CLIENT_SECRET}
       Smtp__Host: ${SMTP_HOST:-mailpit}
       Smtp__Port: ${SMTP_PORT:-1025}
@@ -80,6 +86,8 @@ services:
       ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
       Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Keycloak__MetadataAddress: http://keycloak:8080/realms/easy/.well-known/openid-configuration
+      Keycloak__RequireHttpsMetadata: "false"
       Keycloak__ClientSecret: ${SCHEDULER_CLIENT_SECRET}
     depends_on:
       main-api: {condition: service_healthy}
@@ -130,8 +138,13 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_HEALTH_ENABLED: "true"
+      # Tokens always carry the browser-facing issuer; containers fetch metadata and keys via keycloak:8080.
+      KC_HOSTNAME: http://localhost:8081
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      NOTIFICATION_CLIENT_SECRET: ${NOTIFICATION_CLIENT_SECRET} # placeholders in the realm file
+      SCHEDULER_CLIENT_SECRET: ${SCHEDULER_CLIENT_SECRET}
     volumes:
-      - ./deploy/keycloak:/opt/keycloak/data/import:ro # realm import file: spec ticket
+      - ./deploy/keycloak:/opt/keycloak/data/import:ro # dev realm: seeded users admin/admin, examiner/examiner, MFA off
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; grep -q UP <&3"]
       interval: 10s
