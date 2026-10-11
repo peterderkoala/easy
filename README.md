@@ -31,6 +31,7 @@ Tests: `dotnet test` in the repo root.
 One line per proving path. Each spec adds its line.
 
 - [ ] Spec 1: `docker compose -f compose.dev.yml ps` shows every container healthy; `curl 127.0.0.1:8080/health/main-api` and `/health/exam-room` answer `Healthy Easy.MainApi` and `Healthy Easy.ExamRoom`; `http://127.0.0.1:8080/` loads the Blazor client.
+- [ ] Spec 3: `docker compose -f compose.dev.yml exec postgres psql -U easy -d easy -c '\dt'` lists the skeleton tables (`cycles`, `participants`, `examiners`, `oral_sessions`, `grades`, `audit_entries`, `documents`, `processed_events`, `rebus_outbox`); `docker compose -f compose.dev.yml logs main-api` shows `Bus "Rebus 1" started` and the `OutboxForwarder` task. New migration: `ConnectionStrings__Default=Host=x dotnet ef migrations add <Name> -p src/Easy.Data -s src/Easy.MainApi`.
 
 ## License
 

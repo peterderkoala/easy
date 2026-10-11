@@ -7,7 +7,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Easy.IntegrationTests;
 
-public class GatewayTests
+[Collection(nameof(Infra))]
+public class GatewayTests(Infra infra)
 {
     [Theory]
     [InlineData("/health", "Easy.Gateway")]
@@ -15,7 +16,7 @@ public class GatewayTests
     [InlineData("/health/exam-room", "Easy.ExamRoom")]
     public async Task Gateway_routes_health_of_each_host(string path, string host)
     {
-        using var mainApi = StartOnKestrel(new WebApplicationFactory<mainapi::Program>());
+        using var mainApi = StartOnKestrel(infra.Configure(new WebApplicationFactory<mainapi::Program>()));
         using var examRoom = StartOnKestrel(new WebApplicationFactory<examroom::Program>());
         using var gateway = new WebApplicationFactory<gateway::Program>().WithWebHostBuilder(b => b
             .UseSetting("ReverseProxy:Clusters:main-api:Destinations:main-api:Address", BaseAddress(mainApi))
