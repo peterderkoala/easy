@@ -450,6 +450,7 @@ One status per participant, split into four areas:
 - Live changes during parallel work by several examiners.
 - "In progress" marker for rows being edited.
 - Dedicated hub per Virtual Room (S07).
+- `[DECIDED]` Skeleton join path: MainApi creates an `OralSession` through a REST call by any examiner. ExamRoom only reads the table to check that the session exists and is open. Hub method `JoinSession(sessionId)` adds the connection to the SignalR group `session-{id}` and broadcasts `ExaminerJoined` with the display name from the token. Closed or unknown sessions reject the join. Presence is not stored. One instance, no backplane yet. Any authenticated user with the `examiner` role (admins include it) may join any open session; counted-scoring permissions (main examiners only) come with the grading feature slice.
 - Container split:
   - Main API service: general live updates (documentation, "in progress").
   - Exam room service: Virtual Rooms. Separate, independently scalable container (load only during exam season).
@@ -545,7 +546,7 @@ One status per participant, split into four areas:
 - Email service informs examiners about new items or actions. Also reminders for due dates.
 - Examiners only, never participants.
 - Sent via own Mailcow server on bitfabrik.it. No external provider.
-- SMTP configuration later. Planned via `.env` and Docker environment variables.
+- SMTP configuration via `.env` and Docker environment variables (`Smtp__*`). Dev uses Mailpit (S16).
 - Possibly in-app notifications later, in addition to email.
 - Asynchronous and decoupled from user interaction. No synchronous trigger on comments.
 
@@ -553,6 +554,8 @@ One status per participant, split into four areas:
 
 - Action-based events (e.g. application approval, session end, documentation upload) are published by services to RabbitMQ. The notification service consumes them.
 - Time-based reminders (due dates): Hangfire periodically checks deadlines and publishes the event itself. Hangfire uses Rebus (S09), job persistence in Postgres.
+- `[DECIDED]` Skeleton reminder: a Hangfire recurring job runs daily (cron configurable, default 07:00). It finds cycles whose documentation due date is within 3 days (configurable) and publishes `DeadlineApproaching(cycleId, module, dueDate, daysLeft)` directly, without the outbox. Event ID `deadline:{cycleId}:{module}:{dueDate}:{daysLeft}`, so Hangfire retries and re-runs do not send duplicate mails. The notification service mails all active examiners (recipient rules come with the feature slices) one plain-text German mail each. Addresses come from the `Examiner` mirror (S14). The Hangfire dashboard is disabled in the skeleton.
+- Events carry IDs and minimal data, never personal data. Consumers are idempotent: processed event IDs are recorded and repeats skipped.
 - Application PDF upload triggers no notification (S03). Documentation upload does (S06).
 
 ---
@@ -570,14 +573,14 @@ Proposed entities, derived from S02–S12. Not a final schema.
 
 | Entity | Key fields | Relations / notes |
 |---|---|---|
-| Cycle | id, type (winter/summer), year, per-module due date and deadline | 1–n Participant |
+| Cycle | id, type (winter/summer), year, per-module due date and deadline | 1–n Participant. Skeleton: two nullable columns for the documentation module only (due date, deadline) |
 | Participant | id (GUID), cycle_id, display_no (e.g. `WS2026-014`), csv_id (encrypted), csv_id_hash (blind index, null after forget), name (encrypted), project_title (encrypted), application_status, written_status, documentation_status, oral_status (four nullable enums, S04), key_forgotten flag | n–m Tag; 1–n Registration; 1–n Grade; 1–n Document; 1–n Comment |
-| Examiner | id, external subject (Keycloak), role (admin/examiner), active flag | 1–n Signature (optional) |
+| Examiner | id, external subject (Keycloak), role (admin/examiner), active flag, display name and email (from token claims at first login; examiner data, not encrypted) | 1–n Signature (optional) |
 | Registration | participant_id, examiner_id | Documentation pair (2 examiners) |
 | Grade | participant_id, source (written/documentation/oral/interim), value, updated_by, updated_at | Current value only, no history (S09). `source` enum, unique on `(participant_id, source)`, `value` numeric(5,1) non-negative; maximum per source not enforced in the skeleton |
 | DocumentationScore | participant_id, examiner_id, section, points | Per-examiner; hidden from partner until summary view (S06) |
 | Comment | participant_id, area, author_id, counted flag, text | Uncounted comments from non-registered examiners |
-| OralSession | id, participant_id, status (open/closed) | 3 main examiners; joined examiners; closed = final |
+| OralSession | id, participant_id, status (open/closed) | 3 main examiners; joined examiners; closed = final. Skeleton: only these three fields, created by MainApi, read by ExamRoom |
 | OralGrade | session_id, examiner_id, criteria values, counted flag | Counted only for main examiners |
 | TextTemplate | id, category (rejection/condition), text, created_by | Fixed plus examiner-added (S03) |
 | Tag | id, name | Filter now, assignment later (S03, S05) |
@@ -588,7 +591,7 @@ Proposed entities, derived from S02–S12. Not a final schema.
 
 Derived, not stored: overall grade (S04, S09).
 
-Skeleton subset (decided): Cycle, Participant, Examiner (mirror of the Keycloak subject, created on first login), Grade, AuditEntry, Document (participant id, generated object key, size, uploaded at), the Rebus outbox, and a processed-events table. Import sets application status `submitted`; the first upload sets documentation status `submitted`; written and oral stay null.
+Skeleton subset (decided): Cycle, Participant, Examiner (mirror of the Keycloak subject, created on first login), OralSession, Grade, AuditEntry, Document (participant id, generated object key, size, uploaded at), the Rebus outbox, and a processed-events table. Import sets application status `submitted`; the first upload sets documentation status `submitted`; written and oral stay null.
 
 ---
 
