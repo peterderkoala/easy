@@ -1,4 +1,5 @@
 using Easy.Data;
+using Easy.MainApi.Examiners;
 using Easy.Platform;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,6 +13,7 @@ using (var scope = app.Services.CreateScope())
 
 app.UseEasyPlatform();
 app.UseOutbox(); // write requests: EF transaction + Rebus outbox, committed together
+app.MapMe();
 app.MapStaticAssets();
 app.MapFallbackToFile("index.html");
 

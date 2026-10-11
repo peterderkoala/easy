@@ -17,6 +17,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
+using Easy.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.Keycloak;
 
@@ -170,6 +172,25 @@ public class AuthTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<Ke
         Assert.Equal(HttpStatusCode.OK, (await WhoAmI(gateway.CreateClient(), token)).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await WhoAmI(gateway.CreateClient(), "not-a-token")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await WhoAmI(mainApi.CreateClient(), "not-a-token")).StatusCode);
+    }
+
+    [Fact]
+    public async Task First_login_creates_examiner_mirror_with_role()
+    {
+        var mainApi = Track(infra.Configure(new WebApplicationFactory<mainapi::Program>()).WithWebHostBuilder(b => Keycloak(b)));
+        string token = await keycloak.LoginAsync("admin");
+
+        for (int i = 0; i < 2; i++) // a second login must not add a row
+            (await mainApi.CreateClient().SendAsync(new(HttpMethod.Post, "/api/me")
+                { Headers = { Authorization = new AuthenticationHeaderValue("Bearer", token) } })).EnsureSuccessStatusCode();
+
+        using var scope = mainApi.Services.CreateScope();
+        var examiner = Assert.Single(await scope.ServiceProvider.GetRequiredService<EasyDb>().Examiners.ToListAsync());
+        Assert.Equal(ExaminerRole.Admin, examiner.Role);
+        Assert.Equal("Dev Admin", examiner.DisplayName);
+        Assert.Equal("admin@easy.local", examiner.Email);
+        Assert.True(examiner.Active);
+        Assert.False(string.IsNullOrEmpty(examiner.Subject));
     }
 
     [Fact]
