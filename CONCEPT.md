@@ -38,7 +38,7 @@ For the planning agent. Each item needs a decision or check before the affected 
 - **Single points of failure and recovery** [S16]. Postgres, RabbitMQ, Keycloak: no HA, backup schedule, restore test, or disaster recovery.
 - **Dashboard values undefined** [S08, S10]. The dashboard cannot be specified or tested.
 - **QuestPDF license unverified** [S06]. Could block the grading document. Fallback not defined.
-- **CSV format and versioning** [S02]. Format unknown. No versioning or import error handling defined.
+- **CSV format and versioning** [S02]. Format partly known from a sample (see S02); delimiter, encoding and header layout still unknown. The identification number is not a unique key. No versioning or import error handling defined.
 - **RESOLVED (S06): Upload size limit not enforced** [S06]. Now a hard 15 MB limit, configurable, enforced in three places. Original problem: 5 MB was a guideline only.
 - **Error handling and user feedback** not defined for import failures, failed uploads, or lost SignalR connections during grading.
 - **Offboarding** [S05]. Reassignment is defined for open to-dos, but not for an examiner's historical grades and signature.
@@ -194,7 +194,10 @@ Easy replaces distributed manual coordination between IHK examiners with one sha
 - Accepts a prepared CSV. Import creates a new cycle. Each row becomes a participant object.
 - CSV contains only: participant name, project title, identification number. Technology tags and project details are not imported; examiners add them later manually.
 - Lightweight validation. Scope not yet specified.
-- CSV format not defined (likely specified by the IHK). Validation and import may need adjustment once it is.
+- CSV format is specified by the IHK. A hand-made sample (`docs/samples/antragimport/`) exists; the real delimiter, encoding and header layout are still unknown. Validation and import may need adjustment once they are.
+- `[CLARIFICATION]` The sample suggests the IHK data may carry more than name, title and ID. IHK columns: participant name ("Vorname Nachname"), identification number (`Prüfl.-Nr.`, integer), training provider (`/ Backhaus IT` marks a cooperating company), a status column with the same text in every row (ignored), and project title. To confirm against the real CSV.
+- `[CLARIFICATION]` The identification number is **not a unique key**. It relates to the participant and can be issued again in later years, so it is unique at best within one cycle and must not be used to match participants across cycles. Whether it is unique within a cycle, and whether one person can appear with two numbers, is `[OPEN]` (S10).
+- Columns for language and review comment in the sample were added by an examiner after reading the PDF. They are not part of the IHK file.
 - Import runs asynchronously via RabbitMQ (Rebus), not synchronously in the request.
 - Live progress via SignalR: nice-to-have. At max ~120 rows, long waits are not expected unless AI tooling is added to the import.
 
@@ -493,6 +496,7 @@ One status per participant, split into four areas:
 - Later competence-based examiner assignment via tags (S03, S05).
 - Further user management features (S05).
 - Success criteria for Easy (S01).
+- CSV: uniqueness of the identification number within a cycle, and whether one person can appear with two numbers (S02).
 - Auditability: scope of logged operations (S11).
 - GDPR: concrete requirements for data storage and audit log (S11).
 - Format and criteria of oral-exam grading comments (S07).
