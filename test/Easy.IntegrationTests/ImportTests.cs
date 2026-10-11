@@ -94,11 +94,26 @@ public class ImportTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<
         var response = await Upload($"{Header}\nNeu;4713;F;S;App\n", admin);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        // Past the endpoint (a job queued before the first import finished): the handler fails the job.
+        var jobId = Guid.NewGuid();
+        await Db(async db =>
+        {
+            db.ImportJobs.Add(new() { Id = jobId, CycleType = CycleType.Winter, Year = 2026, Status = ImportStatus.Queued });
+            return await db.SaveChangesAsync();
+        });
+        var keys = mainApi.Services.GetRequiredService<ParticipantKeys>();
+        await mainApi.Services.GetRequiredService<IBus>().SendLocal(ImportCycle.Create(jobId, Encoding.UTF8.GetBytes($"{Header}\nNeu;4713;F;S;App\n"), keys));
+        var job = await Poll(jobId);
+        Assert.Equal("Failed", job.GetProperty("status").GetString());
+        Assert.Contains("Cycle already exists.", job.GetProperty("errors").GetRawText());
+
         Assert.Equal(1, await Db(db => db.Cycles.CountAsync()));
         Assert.Equal(2, await Db(db => db.Participants.CountAsync()));
     }
 
-    // Two uploads can both pass the endpoint check; the handler and the unique index settle it.
+    // Two jobs for one cycle: one cycle whether Rebus handles them in parallel (unique index + retry) or one after the other.
+    // It does not force the parallel path.
     [Fact]
     public async Task Concurrent_imports_for_same_cycle_create_one_cycle()
     {

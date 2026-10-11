@@ -32,6 +32,7 @@ public static class Messaging
     // onCreated runs once the bus is up, e.g. for subscriptions.
     public static WebApplicationBuilder AddEasyMessaging(this WebApplicationBuilder builder, string? queue = null, Func<IBus, Task>? onCreated = null)
     {
+        int before = builder.Services.Count;
         builder.Services.AddRebus((configure, services) =>
         {
             var config = services.GetRequiredService<IConfiguration>();
@@ -52,20 +53,23 @@ public static class Messaging
         // ponytail: under WebApplicationFactory two threads stop the host at once (factory Dispose and Program's app.Run()),
         // RebusBus.Dispose is not thread-safe, and Rebus.PostgreSql's OutboxForwarder.Dispose throws on a second call (#25,
         // docs/research/rebus-postgresql-double-dispose.md). Serialize the bus's StopAsync; drop once disposal is idempotent upstream.
-        var rebus = builder.Services.Last(d => d.ServiceType == typeof(IHostedService));
-        builder.Services[builder.Services.IndexOf(rebus)] = ServiceDescriptor.Singleton<IHostedService>(p => new StopOnce((IHostedService)rebus.ImplementationFactory!(p)));
+        // Exactly the hosted service AddRebus just registered (factory-based in Rebus.ServiceProvider 10.7); throws at start-up if that changes.
+        var rebus = builder.Services.Skip(before).Single(d => d.ServiceType == typeof(IHostedService));
+        var factory = rebus.ImplementationFactory ?? throw new InvalidOperationException("Rebus hosted service is no longer factory-registered; revisit StopOnce.");
+        builder.Services[builder.Services.IndexOf(rebus)] = ServiceDescriptor.Singleton<IHostedService>(p => new StopOnce((IHostedService)factory(p)));
         return builder;
     }
 
     sealed class StopOnce(IHostedService inner) : IHostedService
     {
+        readonly Lock gate = new();
         Task? _stop;
 
         public Task StartAsync(CancellationToken cancellationToken) => inner.StartAsync(cancellationToken);
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
-            lock (inner) return _stop ??= inner.StopAsync(cancellationToken);
+            lock (gate) return _stop ??= inner.StopAsync(cancellationToken);
         }
     }
 

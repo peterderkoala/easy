@@ -41,7 +41,7 @@ public class ImportCycleHandler(EasyDb db, ParticipantKeys keys, IOptions<Import
         using (var fileKey = keys.Open(message.WrappedKey, message.KeyVersion))
             csv = fileKey.DecryptBytes(message.Csv);
         var result = CsvImport.Parse(csv, options.Value);
-        // A concurrent import of the same cycle passes this check too; the unique index then fails its commit,
+        // A concurrent import of the same cycle can pass this check too; its cycle insert then hits the unique index (23505),
         // which rolls back everything incl. FirstDelivery, and the Rebus retry lands here and fails the job.
         if (await db.Cycles.AnyAsync(c => c.Type == job.CycleType && c.Year == job.Year))
             result = result with { Errors = [new(0, "", "Cycle already exists.")] };
