@@ -31,7 +31,11 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
             e.HasIndex(p => new { p.CycleId, p.CsvIdHash }).IsUnique();
         });
         model.Entity<Examiner>().HasIndex(e => e.Subject).IsUnique();
-        model.Entity<OralSession>().HasOne<Participant>().WithMany().HasForeignKey(s => s.ParticipantId);
+        model.Entity<OralSession>(e =>
+        {
+            e.HasOne<Participant>().WithMany().HasForeignKey(s => s.ParticipantId);
+            e.HasIndex(s => s.ParticipantId).IsUnique(); // one per participant, so per cycle; closed is final (S07)
+        });
         model.Entity<Grade>(e =>
         {
             e.HasKey(g => new { g.ParticipantId, g.Source });

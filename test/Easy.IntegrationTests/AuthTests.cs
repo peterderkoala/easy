@@ -84,8 +84,13 @@ public sealed class KeycloakFixture : IAsyncLifetime
             publicClient = true,
             directAccessGrantsEnabled = true,
             attributes = new Dictionary<string, string> { ["access.token.lifespan"] = "1" },
-            protocolMappers = new[] { new { name = "aud", protocol = "openid-connect", protocolMapper = "oidc-audience-mapper",
-                config = new Dictionary<string, string> { ["included.client.audience"] = "easy-api", ["access.token.claim"] = "true" } } },
+            protocolMappers = new[]
+            {
+                new { name = "aud", protocol = "openid-connect", protocolMapper = "oidc-audience-mapper",
+                    config = new Dictionary<string, string> { ["included.client.audience"] = "easy-api", ["access.token.claim"] = "true" } },
+                new { name = "flat roles", protocol = "openid-connect", protocolMapper = "oidc-usermodel-realm-role-mapper", // as on easy-web
+                    config = new Dictionary<string, string> { ["claim.name"] = "roles", ["multivalued"] = "true", ["access.token.claim"] = "true" } },
+            },
         });
         created.EnsureSuccessStatusCode();
         http.DefaultRequestHeaders.Authorization = null;

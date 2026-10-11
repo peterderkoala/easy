@@ -279,6 +279,7 @@ namespace Easy.Data.Migrations
                         .HasName("pk_oral_sessions");
 
                     b.HasIndex("ParticipantId")
+                        .IsUnique()
                         .HasDatabaseName("ix_oral_sessions_participant_id");
 
                     b.ToTable("oral_sessions", (string)null);

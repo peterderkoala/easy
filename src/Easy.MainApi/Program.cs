@@ -3,6 +3,7 @@ using Easy.MainApi.Documents;
 using Easy.MainApi.Examiners;
 using Easy.MainApi.Grades;
 using Easy.MainApi.Imports;
+using Easy.MainApi.OralSessions;
 using Easy.MainApi.Participants;
 using Easy.Platform;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +36,7 @@ app.MapMe();
 app.MapSetGrade();
 app.MapImports();
 app.MapUploadDocument();
+app.MapCreateOralSession();
 app.MapStaticAssets();
 app.MapFallbackToFile("index.html");
 

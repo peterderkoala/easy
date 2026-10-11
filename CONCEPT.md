@@ -589,7 +589,7 @@ Proposed entities, derived from S02–S12. Not a final schema.
 | Grade | participant_id, source (written/documentation/oral/interim), value, updated_by, updated_at | Current value only, no history (S09). `source` enum, unique on `(participant_id, source)`, `value` numeric(5,1) non-negative; maximum per source not enforced in the skeleton |
 | DocumentationScore | participant_id, examiner_id, section, points | Per-examiner; hidden from partner until summary view (S06) |
 | Comment | participant_id, area, author_id, counted flag, text | Uncounted comments from non-registered examiners |
-| OralSession | id, participant_id, status (open/closed) | 3 main examiners; joined examiners; closed = final. Skeleton: only these three fields, created by MainApi, read by ExamRoom |
+| OralSession | id, participant_id, status (open/closed) | 3 main examiners; joined examiners; closed = final. `[DECIDED]` One session per participant (so per cycle), unique on `participant_id`; a second create is rejected. Skeleton: only these three fields, created by MainApi, read by ExamRoom |
 | OralGrade | session_id, examiner_id, criteria values, counted flag | Counted only for main examiners |
 | TextTemplate | id, category (rejection/condition), text, created_by | Fixed plus examiner-added (S03) |
 | Tag | id, name | Filter now, assignment later (S03, S05) |
@@ -613,7 +613,7 @@ Skeleton subset (decided): Cycle, Participant, Examiner (mirror of the Keycloak 
 - **Documentation**: submitted (upload) → in progress → graded. Graded is locked.
   - Reassignment allowed only before "in progress". Trigger for "begun" (first point entry?): open.
 - **Written exam**: attended / failed / passed derived from three point grades. Formula open (S10).
-- **Oral session**: open → closed. Closed is final. No reopen (S07).
+- **Oral session**: open → closed. Closed is final. No reopen (S07) One session per participant (S14).
 
 ### Permission matrix (proposed)
 
