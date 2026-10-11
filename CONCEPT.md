@@ -71,6 +71,7 @@ For the planning agent. Each item needs a decision or check before the affected 
 | Application and approval | **S03**, S04 (application status) |
 | Text templates | **S03**, S10 |
 | Tags and later examiner assignment | **S03**, S05, S10 |
+| Project knowledge base (AI, future) | **S06**, S03, S10 |
 | Participant status values | **S04**, S06, S07, S08 |
 | Points and overall grade | **S04**, S06, S07, S10 |
 | Written exams (calculation) | **S04**, S10 |
@@ -243,7 +244,7 @@ Easy replaces distributed manual coordination between IHK examiners with one sha
 - Examiners assign tags to participant rows, e.g. technology of project work (C#, Docker, SQL).
 - Initially filter-only.
 - Later basis for competence- or preference-based examiner assignment (S05).
-- Future topic, not in MVP: a background service could read the application PDF with AI and suggest tags (e.g. JavaScript, React, MS SQL).
+- Future topic, not in MVP: a background service could read the application PDF with AI and suggest tags (e.g. JavaScript, React, MS SQL). Related: project knowledge base (S06).
 
 ### Real-time
 
@@ -334,6 +335,13 @@ One status per participant, split into four areas:
   - Use a current SeaweedFS version. Test SSE-C enforcement on read, as older versions had gaps.
 - Successful upload automatically emits an event to the notification service. Registered examiners are notified (S12).
 - Process waits for this submission after approval.
+
+### Project knowledge base (future, not in MVP)
+
+- Goal: a knowledge base of past projects, to cross-check whether a topic was present in an earlier cycle.
+- Idea: a separate service reads the content of each uploaded PDF with AI. A guardrail prompt drops all GDPR-relevant information.
+- Reads documents only through the upload event (S12) and MainApi, the only reader of documents.
+- `[OPEN]` Open points: a prompt is not a reliable control, so redaction before the text reaches the model; hosting of the model (an external provider processes participant data); what may persist after "forget" (S02), so only truly anonymous content (S10).
 
 ### Collaborative grading
 
@@ -489,6 +497,7 @@ One status per participant, split into four areas:
 - GDPR: concrete requirements for data storage and audit log (S11).
 - Format and criteria of oral-exam grading comments (S07).
 - Verify QuestPDF license (S06).
+- Project knowledge base: AI reading of PDFs, GDPR guardrail, model hosting, persistence after "forget" (S06).
 
 ---
 
