@@ -17,7 +17,7 @@ namespace Easy.IntegrationTests;
 
 // Spec 6 (issue 21): admin uploads a CSV, MainApi imports it asynchronously through its own queue (S02).
 [Collection(nameof(Infra))]
-public class ImportTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<KeycloakFixture>, IAsyncLifetime
+public class ImportTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifetime
 {
     const string Header = "Prüfungsteilnehmer/-in;Prüfl.-Nr.;Ausbildungsstätte;Status;Projektbezeichnung";
     const string ValidCsv = $"{Header}\nErika Muster;4711;Firma;egal;Webshop\nMax Mustermann;4712;Firma / Backhaus IT;egal;CRM\n";

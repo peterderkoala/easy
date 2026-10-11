@@ -24,7 +24,7 @@ using Testcontainers.Keycloak;
 
 namespace Easy.IntegrationTests;
 
-// One Keycloak per test run, importing the committed dev realm (deploy/keycloak).
+// One Keycloak per test run (a collection fixture of Infra), importing the committed dev realm (deploy/keycloak).
 public sealed class KeycloakFixture : IAsyncLifetime
 {
     readonly KeycloakContainer container = new KeycloakBuilder("quay.io/keycloak/keycloak:26.8.0")
@@ -118,7 +118,7 @@ public sealed class KeycloakFixture : IAsyncLifetime
 }
 
 [Collection(nameof(Infra))] // MainApi needs Postgres and RabbitMQ at start-up
-public class AuthTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<KeycloakFixture>, IDisposable
+public class AuthTests(KeycloakFixture keycloak, Infra infra) : IDisposable
 {
     readonly List<IDisposable> hosts = [];
 

@@ -16,7 +16,7 @@ namespace Easy.IntegrationTests;
 
 // Spec 7 (issue 22): DocumentUploaded reaches the notification service, which mails the active examiners (S12).
 [Collection(nameof(Infra))]
-public class NotificationTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<KeycloakFixture>, IAsyncLifetime
+public class NotificationTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifetime
 {
     readonly HttpClient mailpit = new() { BaseAddress = new(infra.MailpitApi) };
     WebApplicationFactory<mainapi::Program> mainApi = null!;

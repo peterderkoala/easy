@@ -94,4 +94,4 @@ public sealed class Infra : IAsyncLifetime
 }
 
 [CollectionDefinition(nameof(Infra))]
-public class InfraCollection : ICollectionFixture<Infra>;
+public class InfraCollection : ICollectionFixture<Infra>, ICollectionFixture<KeycloakFixture>; // one Keycloak for the run: it is the slowest container to start

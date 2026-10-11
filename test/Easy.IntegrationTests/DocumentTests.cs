@@ -20,7 +20,7 @@ namespace Easy.IntegrationTests;
 
 // Spec 7 (issue 22): PDF upload through MainApi into SeaweedFS with SSE-C (S06, ADR 0002).
 [Collection(nameof(Infra))]
-public class DocumentTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<KeycloakFixture>, IAsyncLifetime
+public class DocumentTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifetime
 {
     static readonly byte[] Pdf = Encoding.ASCII.GetBytes("%PDF-1.7\nsecret participant documentation\n%%EOF");
 

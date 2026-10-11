@@ -18,7 +18,7 @@ namespace Easy.IntegrationTests;
 
 // Spec 5 (issue 20): score write with a synchronous audit entry and an outbox event (S11).
 [Collection(nameof(Infra))]
-public class GradeTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<KeycloakFixture>, IAsyncLifetime
+public class GradeTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifetime
 {
     WebApplicationFactory<mainapi::Program> mainApi = null!;
     string token = null!;

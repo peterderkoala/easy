@@ -19,7 +19,7 @@ namespace Easy.IntegrationTests;
 
 // Spec 8 (issue 23): an examiner joins an oral session through the ExamRoom hub (S07, S09). Real SignalR client over Kestrel.
 [Collection(nameof(Infra))]
-public class ExamRoomTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<KeycloakFixture>, IAsyncLifetime
+public class ExamRoomTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifetime
 {
     readonly List<IAsyncDisposable> disposables = [];
     readonly string database = infra.NewDatabase();
@@ -110,10 +110,10 @@ public class ExamRoomTests(KeycloakFixture keycloak, Infra infra) : IClassFixtur
         await closed.Task.WaitAsync(TimeSpan.FromSeconds(15));
     }
 
-    [Fact]
+    [Fact, Trait("Category", "Slow")] // ~105 s by design; everyday runs skip it (see CLAUDE.md)
     public async Task Hub_connection_survives_idle_beyond_100s_through_gateway()
     {
-        // Slow by design (~105 s). Keep-alives off on both sides, so nothing crosses the gateway while idle: only its activity timeout decides.
+        // Keep-alives off on both sides, so nothing crosses the gateway while idle: only its activity timeout decides.
         string examRoom = StartExamRoom(services => services.Configure<HubOptions>(o =>
         {
             o.KeepAliveInterval = TimeSpan.FromMinutes(5);

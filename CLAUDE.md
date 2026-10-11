@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Walking skeleton, built spec by spec (GitHub issues 16 to 24). .NET 10 solution `Easy.slnx`: hosts and libraries in `src/`, xUnit tests in `test/`.
 
-- Build: `dotnet build`. Test: `dotnet test` (single project: `dotnet test test/Easy.Platform.Tests`).
+- Build: `dotnet build`. Test: `dotnet test --filter "Category!=Slow"` while working; plain `dotnet test` (includes the ~105 s gateway idle test) before pushing. Single project: `dotnet test test/Easy.Platform.Tests`.
 - Run everything: see README "First run" (`docker compose -f compose.dev.yml up --build`). One root `Dockerfile` builds every host via the `PROJECT` build arg.
 - Shared host wiring (Serilog JSON, correlation ID, `/health`) is `AddEasyPlatform()` / `UseEasyPlatform()` in `src/Easy.Platform`.
 - No lint tooling yet. Do not invent commands.
