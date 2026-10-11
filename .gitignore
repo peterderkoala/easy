@@ -435,6 +435,9 @@ docs/samples/**
 !docs/samples/**/
 !docs/samples/**/*.md
 
+# Obsidian: per-user window state
+docs/vault/**/.obsidian/workspace*.json
+
 # Local deployment files and secrets
 compose.prod.yml
 /secrets/

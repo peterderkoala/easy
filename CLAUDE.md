@@ -28,7 +28,7 @@ Conventions in `CONCEPT.md`:
 
 ## Other
 
-- `docs/vault/` is an Obsidian vault (untracked); `docs/vault/easy/.obsidian/` is editor config.
+- `docs/vault/` is an Obsidian vault (tracked); `docs/vault/easy/.obsidian/` is editor config, `workspace*.json` is gitignored.
 - Branches: work on `dev`, PRs target `main`.
 
 ## Agent skills

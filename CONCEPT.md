@@ -200,6 +200,8 @@ Easy replaces distributed manual coordination between IHK examiners with one sha
 - `[DECIDED]` Skeleton parsing (the real layout is still unknown, so all settings are configurable): CsvHelper, UTF-8 (BOM accepted), delimiter `;` by default. A header row is required; columns are matched case-insensitively by name. Required: name, identification number, project title. Other columns (provider, status) are ignored. The cycle's type and year come from the import form, not the file. Import is admin-only (S05). The original file is not stored, only a result summary.
 - `[DECIDED]` Validation is all-or-nothing: required fields non-empty, ID is an integer, no duplicate IDs inside the file, at most 500 rows and 1 MB. Any error means nothing is imported; the job ends as failed with row errors (row number, column, message) shown to the admin, who uploads a corrected file. A valid file creates the cycle and all participants in one transaction with the outbox event. The import job has an ID, so a redelivered message does not create a second cycle.
 - Import runs asynchronously via RabbitMQ (Rebus), not synchronously in the request.
+- `[DECIDED]` A cycle is unique per type and year. An import for an existing cycle is rejected. Participants missing from an import are added manually to the existing cycle, not by a second import.
+- `[OPEN]` Retention of the encrypted CSV in the Rebus error queue after a failed import (S10, issue 28).
 - Live progress via SignalR: nice-to-have. At max ~120 rows, long waits are not expected unless AI tooling is added to the import.
 
 ### Participant ID
@@ -337,6 +339,8 @@ One status per participant, split into four areas:
 - PDF submission happens in a separate IHK environment. Download is outside the platform.
 - Easy needs an upload function for the externally downloaded PDF.
 - `[CLARIFICATION]` `[DECIDED]` Hard limit: 15 MB by default, configurable through an environment variable. PDF only (magic-bytes check). Enforced at the YARP upload route, Kestrel and MainApi, all reading the same setting. Uploads go through MainApi (proxy), which applies SSE-C with the unwrapped participant key.
+- `[DECIDED]` Every role may upload documents (examiners and admins; admins hold the examiner role). Service accounts may not.
+- `[OPEN]` Re-upload: which re-upload is meant (application vs documentation, before vs after grading) and its effect on the status (S10, issue 29).
 - Storage: S3-compatible object storage, decided on SeaweedFS (Apache-2.0, lightweight, Docker-friendly).
   - Objects encrypted with the participant-specific key (SSE-C). No separate key.
   - Deletion concept (S11): unreadable by key deletion.
@@ -503,6 +507,8 @@ One status per participant, split into four areas:
 - Later competence-based examiner assignment via tags (S03, S05).
 - Further user management features (S05).
 - Success criteria for Easy (S01).
+- Retention of the encrypted import CSV in the Rebus error queue (S02, issue 28).
+- Re-upload of documents and its effect on the status (S06, issue 29).
 - CSV: uniqueness of the identification number within a cycle, and whether one person can appear with two numbers (S02).
 - Auditability: scope of logged operations (S11).
 - GDPR: concrete requirements for data storage and audit log (S11).
