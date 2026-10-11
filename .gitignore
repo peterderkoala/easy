@@ -429,3 +429,8 @@ FodyWeavers.xsd
 
 # Session handoffs (local only)
 /handoff/
+
+# Samples: track only Markdown (real data stays local)
+docs/samples/**
+!docs/samples/**/
+!docs/samples/**/*.md
