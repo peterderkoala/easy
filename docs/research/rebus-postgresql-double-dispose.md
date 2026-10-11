@@ -1,6 +1,6 @@
 # Draft upstream issue: OutboxForwarder.Dispose throws when the bus is disposed concurrently
 
-Target: rebus-org/Rebus.PostgreSql (not filed yet; link it in easy#25 once filed).
+Target: rebus-org/Rebus.PostgreSql. Not filed (decision 2026-10-11: no actions in other repos from this project); file manually if wanted and link it in easy#25.
 Versions: Rebus 8.9.5, Rebus.PostgreSql 9.1.1, Rebus.ServiceProvider 10.7.2, .NET 10.
 
 ---
@@ -47,10 +47,44 @@ A variant throws from `TplAsyncTask.Dispose()` (`_tokenSource.Cancel()`), reache
 
 Sequential double disposal is fine (`RebusBus._disposed` stops it). The failure needs the concurrent case, which is why it is intermittent.
 
-**Minimal repro**
+**Minimal repro** (verified 2026-10-11, console app, .NET 10, Postgres 17)
 
-- Web app: `builder.Services.AddRebus(c => c.Transport(t => t.UseInMemoryTransport(new(), "q")).Outbox(o => o.StoreInPostgreSql(cs, "outbox")));` and `app.Run();`.
-- xUnit test: create `new WebApplicationFactory<Program>()`, call `CreateClient()`, dispose it; loop 100 times. (Not run standalone yet: in our suite of ~40 such factories it failed 1-2 times per run.)
+```csharp
+// Repro.csproj: Microsoft.NET.Sdk.Web; Rebus 8.9.5, Rebus.PostgreSql 9.1.1, Rebus.ServiceProvider 10.7.2
+using Rebus.Config;
+using Rebus.Config.Outbox;
+using Rebus.Transport.InMem;
+
+for (int i = 0; i < 300; i++)
+{
+    var builder = WebApplication.CreateBuilder();
+    builder.WebHost.UseUrls("http://127.0.0.1:0");
+    builder.Services.AddRebus(c => c
+        .Transport(t => t.UseInMemoryTransport(new InMemNetwork(), "q"))
+        .Outbox(o => o.StoreInPostgreSql(args[0], "outbox")));
+    var app = builder.Build();
+    await app.StartAsync();
+    // What WebApplicationFactory.Dispose and app.Run()'s WaitForShutdownAsync do at the same time:
+    await Task.WhenAll(Task.Run(() => app.StopAsync()), Task.Run(() => app.StopAsync()));
+}
+```
+
+Result: 1 failure in 300 rounds, then 1 in the first ~1000 before the process hit the inotify limit (unrelated; each host
+watches appsettings). Disposing `IBus` directly from two threads (with a `Barrier`) gave 0/300, so the window needs the
+real stop path. Stack of the failure:
+
+```
+System.ObjectDisposedException: The CancellationTokenSource has been disposed.
+   at System.Threading.CancellationTokenSource.Cancel()
+   at Rebus.Threading.TaskParallelLibrary.TplAsyncTask.Dispose()
+   at Rebus.PostgreSql.Outbox.OutboxForwarder.Dispose()
+   at Rebus.Config.RebusConfigurer.<>c__DisplayClass14_1.<Start>b__36()
+   at Rebus.Bus.RebusBus.Dispose()
+   at Rebus.ServiceProvider.Internals.RebusBackgroundService.StopAsync(CancellationToken cancellationToken)
+   at Microsoft.Extensions.Hosting.Internal.Host.StopAsync(CancellationToken cancellationToken)
+```
+
+The rate is low with the in-memory transport; with RabbitMQ (slower dispose) our suite hit it 1-2 times per ~40 hosts.
 
 **Suggested fix**
 
