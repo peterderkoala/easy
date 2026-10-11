@@ -15,7 +15,7 @@ For the planning agent. Each item needs a decision or check before the affected 
 ### Security and privacy
 
 - **RESOLVED (ADR 0001, S02): Encryption "forget" may not delete anything** [S02]. Now envelope encryption with an external master secret; no salt. Original problem: The key is derived from participant data plus salt, on demand. If both inputs live in the database, anyone with DB access can re-derive it. Needed: key material from outside the DB (e.g. examiner-held secret or external KMS), and a defined salt location.
-- **Audit log may hold personal data** [S11]. Old/new values of graded fields may contain personal data. Unclear whether audit rows are encrypted or purged on "forget".
+- **RESOLVED (S11): Audit log may hold personal data** [S11]. Encrypted fields are audited under the participant key; `participant_id` and points stay after "forget". Original problem: Old/new values of graded fields may contain personal data. Unclear whether audit rows are encrypted or purged on "forget".
 - **Unlimited retention conflicts with GDPR storage limitation** [S11]. Even with "forget", indefinite retention of personal records needs a legal check.
 - **RESOLVED (ADR 0001, S02): Documents survive "forget" as ciphertext** [S06, S02]. Forget now also deletes the SeaweedFS objects. Original problem: SeaweedFS objects remain stored. Deletion of the object, not only key loss, should be considered.
 - **SSE-C enforcement unverified** [S06]. Relies on a current SeaweedFS version and a read-test that is not yet done.
@@ -507,9 +507,12 @@ One status per participant, split into four areas:
 
 - The system must be auditable.
 - `[DECIDED]` Separate table in the same Postgres DB. No Elasticsearch or Loki. Reason: joins with correlation ID, status, points, and grading documents; transactional consistency with business changes.
-- `[PROVISIONAL]` Central, reusable audit component (library or EF interceptor) used by all services. Writes synchronously in the same transaction as the business change. No separate audit service: it would either be a thin wrapper or, with async messaging, lose transactional safety.
+- `[DECIDED]` Central, reusable audit component: an own EF Core `SaveChangesInterceptor` in `Platform`, no library. Opt-in `[Audited]` attribute on properties. `actor_id` is the token `sub` (service accounts included), `correlation_id` comes from the ambient context. Writes synchronously in the same transaction as the business change. No separate audit service: it would either be a thin wrapper or, with async messaging, lose transactional safety.
 - `[DECIDED]` Audit log visible to admins only.
 - Logged: every value change on grading-relevant data. Not every keystroke.
+- Skeleton audits only the `Grade` value, always type `initial`. The `correction` logic needs the "closed area" state and comes with the grading feature slice.
+- Append-only: no update or delete path in code, covered by a test. DB-level protection (insert-only role) is not decided.
+- Personal data: audit rows for readable fields store plain old/new values and keep `participant_id`. Rows for encrypted fields (e.g. comments) store old/new encrypted under the participant data key (S02), so they are unreadable after "forget" while the row survives. `participant_id` and point values stay after "forget"; the legal check is open.
 - Entries carry a type (e.g. "correction"). Late changes to closed areas are distinguishable from initial entries.
 - Retention: unlimited, as long as the participant is not "forgotten" (S02). No fixed deletion period.
 - `[OPEN]` Scope of logged operations (S10).
@@ -525,7 +528,8 @@ One status per participant, split into four areas:
 
 - Relevant for data storage and the audit log.
 - Encryption via participant-specific key (S02). Deletion by wrapped-key and object deletion (S02).
-- `[OPEN]` Concrete requirements for data storage and audit log, incl. which data must be encrypted without losing findability (S10).
+- Encrypted: name, project title, CSV id number, comments, documents. Readable: points, status, display number (S02, ADR 0001). Audit rules above.
+- `[OPEN]` Findability of encrypted data (search over names or titles) is not designed (S10).
 
 ---
 
