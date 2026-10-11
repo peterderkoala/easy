@@ -1,0 +1,22 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Easy.Client/Easy.Client.csproj" />
+    <Project Path="src/Easy.Contracts/Easy.Contracts.csproj" />
+    <Project Path="src/Easy.Data/Easy.Data.csproj" />
+    <Project Path="src/Easy.ExamRoom/Easy.ExamRoom.csproj" />
+    <Project Path="src/Easy.Gateway/Easy.Gateway.csproj" />
+    <Project Path="src/Easy.MainApi/Easy.MainApi.csproj" />
+    <Project Path="src/Easy.Notification/Easy.Notification.csproj" />
+    <Project Path="src/Easy.Platform/Easy.Platform.csproj" />
+    <Project Path="src/Easy.Scheduler/Easy.Scheduler.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Easy.ExamRoom.Tests/Easy.ExamRoom.Tests.csproj" />
+    <Project Path="test/Easy.Gateway.Tests/Easy.Gateway.Tests.csproj" />
+    <Project Path="test/Easy.IntegrationTests/Easy.IntegrationTests.csproj" />
+    <Project Path="test/Easy.MainApi.Tests/Easy.MainApi.Tests.csproj" />
+    <Project Path="test/Easy.Notification.Tests/Easy.Notification.Tests.csproj" />
+    <Project Path="test/Easy.Platform.Tests/Easy.Platform.Tests.csproj" />
+    <Project Path="test/Easy.Scheduler.Tests/Easy.Scheduler.Tests.csproj" />
+  </Folder>
+</Solution>

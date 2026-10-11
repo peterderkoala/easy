@@ -4,6 +4,12 @@
 # TLS termination point is still open (S16); put a reverse proxy in front of gateway and keycloak.
 name: easy
 
+x-app-healthcheck: &app-healthcheck
+  # aspnet image has no curl; bash /dev/tcp is enough
+  test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q Healthy <&3"]
+  interval: 5s
+  retries: 20
+
 networks:
   public: {}
   internal:
@@ -15,14 +21,18 @@ secrets:
 
 services:
   gateway:
-    build: ./src/Easy.Gateway
+    build: {context: ., args: {PROJECT: Easy.Gateway}}
+    healthcheck: *app-healthcheck
     restart: unless-stopped
     networks: [public, internal]
     ports: ["8080:8080"] # behind the TLS reverse proxy
-    depends_on: [main-api, exam-room]
+    depends_on:
+      main-api: {condition: service_healthy}
+      exam-room: {condition: service_healthy}
 
   main-api:
-    build: ./src/Easy.MainApi
+    build: {context: ., args: {PROJECT: Easy.MainApi}}
+    healthcheck: *app-healthcheck
     restart: unless-stopped
     networks: [internal]
     secrets: [master_secret] # MainApi only (ADR 0001)
@@ -40,17 +50,20 @@ services:
       keycloak: {condition: service_healthy}
 
   exam-room:
-    build: ./src/Easy.ExamRoom
+    build: {context: ., args: {PROJECT: Easy.ExamRoom}}
+    healthcheck: *app-healthcheck
     restart: unless-stopped
     networks: [internal]
     environment:
       ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
       Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
-    depends_on: [main-api] # migrations run in main-api; add a healthcheck once /health exists
+    depends_on:
+      main-api: {condition: service_healthy} # main-api runs the migrations
 
   notification:
-    build: ./src/Easy.Notification
+    build: {context: ., args: {PROJECT: Easy.Notification}}
+    healthcheck: *app-healthcheck
     restart: unless-stopped
     networks: [internal]
     environment:
@@ -62,10 +75,13 @@ services:
       Smtp__Port: ${SMTP_PORT:-1025}
       Smtp__User: ${SMTP_USER:-}
       Smtp__Password: ${SMTP_PASSWORD:-}
-    depends_on: [main-api, mailpit]
+    depends_on:
+      main-api: {condition: service_healthy}
+      mailpit: {condition: service_started}
 
   scheduler:
-    build: ./src/Easy.Scheduler
+    build: {context: ., args: {PROJECT: Easy.Scheduler}}
+    healthcheck: *app-healthcheck
     restart: unless-stopped
     networks: [internal]
     environment:
@@ -73,7 +89,8 @@ services:
       Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
       Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
       Keycloak__ClientSecret: ${SCHEDULER_CLIENT_SECRET}
-    depends_on: [main-api]
+    depends_on:
+      main-api: {condition: service_healthy}
 
   postgres:
     restart: unless-stopped

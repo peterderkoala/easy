@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+.git/
+.claude/
+docs/
+handoff/
+secrets/
+test/
+.env

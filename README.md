@@ -4,14 +4,33 @@ Web platform for collaborative work by IHK examiners: cycle import, application 
 
 ## Project state
 
-- **Phase:** concept. No application code yet.
+- **Phase:** walking skeleton. Specs are GitHub issues 16 to 24.
 - **Concept:** [`CONCEPT.md`](CONCEPT.md) is the single source of truth. Sections S00–S16, with a "READ FIRST" list of known flaws and gaps at the top.
 - **Planned stack:** .NET 10, ASP.NET-hosted Blazor WebAssembly, SignalR, PostgreSQL with EF Core, RabbitMQ with Rebus, YARP gateway, SeaweedFS, Keycloak, Hangfire, Docker Compose.
 - **Blockers before implementation:**
   - Overall grade formula and written-exam logic are undefined.
   - Encryption-key "forget" design needs a decision (key material and salt location).
   - Audit-log content and retention need a privacy check.
-- **Lint:** not applicable yet, no source files.
+
+## First run
+
+Needs Docker and, for local builds and tests, the .NET 10 SDK.
+
+```sh
+cp .env.example .env
+mkdir -p secrets && head -c 32 /dev/urandom | base64 > secrets/master_secret
+docker compose -f compose.dev.yml up --build
+```
+
+The gateway listens on http://127.0.0.1:8080. Keycloak is on 8081, the Mailpit UI on 8025, RabbitMQ management on 15672, Postgres on 5432 (all on 127.0.0.1 only).
+
+Tests: `dotnet test` in the repo root.
+
+## Smoke checklist
+
+One line per proving path. Each spec adds its line.
+
+- [ ] Spec 1: `docker compose -f compose.dev.yml ps` shows every container healthy; `curl 127.0.0.1:8080/health/main-api` and `/health/exam-room` answer `Healthy Easy.MainApi` and `Healthy Easy.ExamRoom`; `http://127.0.0.1:8080/` loads the Blazor client.
 
 ## License
 

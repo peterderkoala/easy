@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## State
 
-Concept phase. There is no application code, build, lint, or test tooling yet (`src/` and `test/` are empty). Do not invent commands.
+Walking skeleton, built spec by spec (GitHub issues 16 to 24). .NET 10 solution `Easy.slnx`: hosts and libraries in `src/`, xUnit tests in `test/`.
+
+- Build: `dotnet build`. Test: `dotnet test` (single project: `dotnet test test/Easy.Platform.Tests`).
+- Run everything: see README "First run" (`docker compose -f compose.dev.yml up --build`). One root `Dockerfile` builds every host via the `PROJECT` build arg.
+- Shared host wiring (Serilog JSON, correlation ID, `/health`) is `AddEasyPlatform()` / `UseEasyPlatform()` in `src/Easy.Platform`.
+- No lint tooling yet. Do not invent commands.
 
 `easy` is a web platform for collaborative work by IHK examiners: cycle import, application approval, split-view grading, virtual oral exams, dashboards.
 

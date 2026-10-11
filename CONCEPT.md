@@ -659,8 +659,9 @@ Skeleton subset (decided): Cycle, Participant, Examiner (mirror of the Keycloak 
 - `[DECIDED]` Secrets: `.env.example` is committed with placeholders, the real `.env` is gitignored. Service-account client secrets (notification, scheduler; S05), SMTP settings and the upload limit live in `.env`. The master secret (S02) is the gitignored file `secrets/master_secret`, mounted through Compose `secrets:` into main-api only. Secret storage beyond this: open.
 - `[DECIDED]` Mail: Mailpit is the dev mail catcher (UI on `127.0.0.1`). SMTP host, port and credentials come only from environment variables (`Smtp__*`); production points them at Mailcow.
 - `[DECIDED]` Networks: only the gateway is publicly reachable, all others are on the internal network. Exception: Keycloak must also be reachable by the browser (login goes directly to it, S05), so it joins the public network behind the TLS reverse proxy. TLS termination point: open.
-- `[DECIDED]` Start-up order through healthchecks and `depends_on: service_healthy`: Postgres, RabbitMQ, SeaweedFS and Keycloak (realm import) first, then main-api (runs the migrations), then the other hosts and the gateway. One database with a `hangfire` schema, one connection string per host. The app hosts get healthchecks once a `/health` endpoint exists.
-- Not written yet: the Keycloak realm import file (`deploy/keycloak/`) and the app host projects under `src/`, so the app services cannot build yet.
+- `[DECIDED]` Start-up order through healthchecks and `depends_on: service_healthy`: Postgres, RabbitMQ, SeaweedFS and Keycloak (realm import) first, then main-api (runs the migrations), then the other hosts and the gateway. One database with a `hangfire` schema, one connection string per host. Every app host exposes `/health` (answers `Healthy <host>`), which its Compose healthcheck calls; the gateway also routes `/health/main-api` and `/health/exam-room`.
+- App hosts build from the shared root `Dockerfile` (`PROJECT` build arg). Gateway routes: `/hubs/exam-room/**` to exam-room, everything else to main-api (`[PROVISIONAL]` hub path, spec 8 may change it).
+- Not written yet: the Keycloak realm import file (`deploy/keycloak/`, spec 2).
 
 ### Operations
 
