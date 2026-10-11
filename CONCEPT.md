@@ -39,7 +39,7 @@ For the planning agent. Each item needs a decision or check before the affected 
 - **Dashboard values undefined** [S08, S10]. The dashboard cannot be specified or tested.
 - **QuestPDF license unverified** [S06]. Could block the grading document. Fallback not defined.
 - **CSV format and versioning** [S02]. Format unknown. No versioning or import error handling defined.
-- **Upload size limit not enforced** [S06]. 5 MB is a guideline only.
+- **RESOLVED (S06): Upload size limit not enforced** [S06]. Now a hard 15 MB limit, configurable, enforced in three places. Original problem: 5 MB was a guideline only.
 - **Error handling and user feedback** not defined for import failures, failed uploads, or lost SignalR connections during grading.
 - **Offboarding** [S05]. Reassignment is defined for open to-dos, but not for an examiner's historical grades and signature.
 - **Testing beyond TDD** [S09]. No integration, end-to-end, or load test scope (exam-room load peaks are expected).
@@ -328,7 +328,7 @@ One status per participant, split into four areas:
 
 - PDF submission happens in a separate IHK environment. Download is outside the platform.
 - Easy needs an upload function for the externally downloaded PDF.
-- Guideline size: max 5 MB. Further format and size rules open.
+- `[CLARIFICATION]` `[DECIDED]` Hard limit: 15 MB by default, configurable through an environment variable. PDF only (magic-bytes check). Enforced at the YARP upload route, Kestrel and MainApi, all reading the same setting. Uploads go through MainApi (proxy), which applies SSE-C with the unwrapped participant key.
 - Storage: S3-compatible object storage, decided on SeaweedFS (Apache-2.0, lightweight, Docker-friendly).
   - Objects encrypted with the participant-specific key (SSE-C). No separate key.
   - Deletion concept (S11): unreadable by key deletion.
@@ -648,6 +648,6 @@ Derived, not stored: overall grade (S04, S09).
 - Logging: structured logs with correlation ID. Tracing and log stack: not chosen (S11 rules out Elasticsearch/Loki for audit only, not for ops logs; open).
 - Monitoring and alerting: not defined.
 - Scaling: exam-room scalable; other containers assumed single-instance (open).
-- Limits: document upload max ~5 MB (S06, guideline, not enforced).
+- Limits: document upload max 15 MB by default, configurable by environment variable and enforced (S06).
 - CI/CD: deferred (S09).
 - Disaster recovery: not defined.
