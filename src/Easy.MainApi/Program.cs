@@ -1,17 +1,25 @@
 using Easy.Data;
 using Easy.MainApi.Examiners;
 using Easy.MainApi.Grades;
+using Easy.MainApi.Imports;
 using Easy.MainApi.Participants;
 using Easy.Platform;
 using Microsoft.EntityFrameworkCore;
+using Rebus.Config;
 
-var builder = WebApplication.CreateBuilder(args).AddEasyPlatform().AddEasyMessaging();
+var builder = WebApplication.CreateBuilder(args).AddEasyPlatform().AddEasyMessaging("main-api"); // own queue: CSV import (S02)
 builder.Services.AddEasyData();
 // Read on first use, so only code that touches participant data needs the secret file (ADR 0001, MainApi only).
-builder.Services.AddSingleton<IMasterSecret>(_ => FileMasterSecret.Read(
-    builder.Configuration["MasterSecretFile"] ?? throw new InvalidOperationException("MasterSecretFile is not configured."),
-    builder.Configuration.GetValue("MasterSecretVersion", 1)));
+builder.Services.AddSingleton<IMasterSecret>(sp =>
+{
+    // From the container, not builder.Configuration, so host-level overrides (tests) apply.
+    var config = sp.GetRequiredService<IConfiguration>();
+    return FileMasterSecret.Read(config["MasterSecretFile"] ?? throw new InvalidOperationException("MasterSecretFile is not configured."),
+        config.GetValue("MasterSecretVersion", 1));
+});
 builder.Services.AddSingleton<ParticipantKeys>();
+builder.Services.Configure<ImportOptions>(builder.Configuration.GetSection("Import"));
+builder.Services.AddRebusHandler<ImportCycleHandler>();
 var app = builder.Build();
 
 // MainApi owns the schema; the other hosts start after it is healthy (S16).
@@ -22,6 +30,7 @@ app.UseEasyPlatform();
 app.UseOutbox(); // write requests: EF transaction + Rebus outbox, committed together
 app.MapMe();
 app.MapSetGrade();
+app.MapImports();
 app.MapStaticAssets();
 app.MapFallbackToFile("index.html");
 

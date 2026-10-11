@@ -23,7 +23,8 @@ public static class Messaging
 {
     public const string OutboxTable = "rebus_outbox"; // created by Rebus on start
 
-    // queue null = one-way client (publish only).
+    // queue null = one-way client (publish only). Rebus:Queue overrides the queue name; tests give each host its own.
+    // Never set it for more than one host in Compose, or they would share one input queue.
     public static WebApplicationBuilder AddEasyMessaging(this WebApplicationBuilder builder, string? queue = null)
     {
         builder.Services.AddRebus((configure, services) =>
@@ -35,7 +36,7 @@ public static class Messaging
                 .Transport(t =>
                 {
                     if (queue is null) t.UseRabbitMqAsOneWayClient(rabbit);
-                    else t.UseRabbitMq(rabbit, queue);
+                    else t.UseRabbitMq(rabbit, config["Rebus:Queue"] ?? queue);
                 })
                 .Outbox(o => o.StoreInPostgreSql(database, OutboxTable))
                 .Options(o => o.Decorate<IPipeline>(c => new PipelineStepInjector(c.Get<IPipeline>())
@@ -69,15 +70,26 @@ public static class Messaging
     // (Rebus opens it per message and commits it after the handler). False = already processed, skip.
     public static async Task<bool> FirstDelivery(this IMessageContext context, string eventId)
     {
-        // ponytail: key is internal to Rebus.PostgreSql (OutboxExtensions.CurrentOutboxConnectionKey), pinned versions keep it stable;
-        // re-check on every Rebus.PostgreSql upgrade, or switch to the hand-rolled outbox (ADR 0003 fallback) if it moves.
-        var outbox = (OutboxConnection)context.TransactionContext.Items["current-outbox-connection"];
+        var outbox = Outbox(context);
         await using var insert = new NpgsqlCommand("INSERT INTO processed_events (id) VALUES ($1) ON CONFLICT DO NOTHING", outbox.Connection, outbox.Transaction)
         {
             Parameters = { new() { Value = eventId } },
         };
         return await insert.ExecuteNonQueryAsync() == 1;
     }
+
+    // Puts a handler's EF writes on the message's outbox connection and transaction, so FirstDelivery, business rows
+    // and published messages commit together. Call before the context touches the database.
+    public static void UseOutboxTransaction(this IMessageContext context, EasyDb db)
+    {
+        var outbox = Outbox(context);
+        db.Database.SetDbConnection(outbox.Connection);
+        db.Database.UseTransaction(outbox.Transaction);
+    }
+
+    // ponytail: key is internal to Rebus.PostgreSql (OutboxExtensions.CurrentOutboxConnectionKey), pinned versions keep it stable;
+    // re-check on every Rebus.PostgreSql upgrade, or switch to the hand-rolled outbox (ADR 0003 fallback) if it moves.
+    static OutboxConnection Outbox(IMessageContext context) => (OutboxConnection)context.TransactionContext.Items["current-outbox-connection"];
 
     sealed class IncomingCorrelation : IIncomingStep
     {

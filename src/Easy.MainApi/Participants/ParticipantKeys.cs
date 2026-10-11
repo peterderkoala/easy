@@ -53,12 +53,14 @@ public sealed class ParticipantKeys(IMasterSecret master)
     }
 
     // Per request; never cache the result.
-    public DataKey Open(Participant p)
+    public DataKey Open(Participant p) =>
+        p.WrappedKey is null ? throw new InvalidOperationException("Participant key was forgotten.") : Open(p.WrappedKey, p.KeyVersion);
+
+    public DataKey Open(byte[] wrapped, int version)
     {
-        if (p.WrappedKey is null) throw new InvalidOperationException("Participant key was forgotten.");
         // ponytail: one master-secret version at a time; re-wrap all keys before bumping it, or let IMasterSecret hold old versions when rotation is real
-        if (p.KeyVersion != master.Version) throw new InvalidOperationException($"Key wrapped under master-secret version {p.KeyVersion}, current is {master.Version}.");
-        return new(master.Unwrap(p.WrappedKey), p.WrappedKey, p.KeyVersion);
+        if (version != master.Version) throw new InvalidOperationException($"Key wrapped under master-secret version {version}, current is {master.Version}.");
+        return new(master.Unwrap(wrapped), wrapped, version);
     }
 
     // S02: HMAC over cycle and identification number, for the (cycle_id, csv_id_hash) unique index.
@@ -82,6 +84,8 @@ public sealed class DataKey(byte[] key, byte[] wrapped, int version) : IDisposab
 
     public byte[] Encrypt(string value) => Aead.Seal(key, Encoding.UTF8.GetBytes(value));
     public string Decrypt(byte[] value) => Encoding.UTF8.GetString(Aead.Open(key, value));
+    public byte[] EncryptBytes(byte[] value) => Aead.Seal(key, value);
+    public byte[] DecryptBytes(byte[] value) => Aead.Open(key, value);
 
     public void Dispose() => CryptographicOperations.ZeroMemory(key);
 }

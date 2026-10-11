@@ -17,7 +17,7 @@ namespace Easy.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.4")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -217,6 +217,44 @@ namespace Easy.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Easy.Data.ImportJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CycleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cycle_id");
+
+                    b.Property<string>("CycleType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("cycle_type");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("integer")
+                        .HasColumnName("year");
+
+                    b.HasKey("Id")
+                        .HasName("pk_import_jobs");
+
+                    b.HasIndex("CycleId")
+                        .HasDatabaseName("ix_import_jobs_cycle_id");
+
+                    b.ToTable("import_jobs", (string)null);
+                });
+
             modelBuilder.Entity("Easy.Data.OralSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -362,6 +400,44 @@ namespace Easy.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_grades_examiners_updated_by");
+                });
+
+            modelBuilder.Entity("Easy.Data.ImportJob", b =>
+                {
+                    b.HasOne("Easy.Data.Cycle", null)
+                        .WithMany()
+                        .HasForeignKey("CycleId")
+                        .HasConstraintName("fk_import_jobs_cycles_cycle_id");
+
+                    b.OwnsMany("Easy.Data.ImportError", "Errors", b1 =>
+                        {
+                            b1.Property<Guid>("ImportJobId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAdd();
+
+                            b1.Property<string>("Column")
+                                .IsRequired();
+
+                            b1.Property<string>("Message")
+                                .IsRequired();
+
+                            b1.Property<int>("Row");
+
+                            b1.HasKey("ImportJobId", "__synthesizedOrdinal");
+
+                            b1.ToTable("import_jobs");
+
+                            b1
+                                .ToJson("errors")
+                                .HasColumnType("jsonb");
+
+                            b1.WithOwner()
+                                .HasForeignKey("ImportJobId")
+                                .HasConstraintName("fk_import_jobs_import_jobs_import_job_id");
+                        });
+
+                    b.Navigation("Errors");
                 });
 
             modelBuilder.Entity("Easy.Data.OralSession", b =>

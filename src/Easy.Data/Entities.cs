@@ -103,6 +103,23 @@ public class Document
     public DateTimeOffset UploadedAt { get; set; }
 }
 
+public enum ImportStatus { Queued, Succeeded, Failed }
+
+// S02: one CSV upload. The file itself is never stored; only the outcome and row errors (no field values).
+public class ImportJob
+{
+    public Guid Id { get; set; }
+    public CycleType CycleType { get; set; }
+    public int Year { get; set; }
+    public ImportStatus Status { get; set; }
+    public Guid? CycleId { get; set; }
+    public List<ImportError> Errors { get; set; } = [];
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+// Row 1 is the header; row 0 means the whole file.
+public record ImportError(int Row, string Column, string Message);
+
 // Idempotent consumers: one row per handled event ID.
 public class ProcessedEvent
 {

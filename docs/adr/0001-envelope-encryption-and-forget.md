@@ -17,3 +17,4 @@ Participant personal data is encrypted with a random per-participant data key. A
 - Encrypted: name, project title, CSV id number, comments, documents. Readable: points, status, display number.
 - Encrypted backups are kept about 30 days. Until they expire, forget is reversible from a backup, and this is a spec requirement. After that the data is unrecoverable.
 - Master-secret rotation is manual re-wrapping, with no automatic rotation in the skeleton.
+- The CSV import message carries the uploaded file encrypted under a one-off data key of the same kind, so no plain participant data sits in the outbox table or the broker (S02).

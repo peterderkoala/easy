@@ -16,6 +16,7 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<ProcessedEvent> ProcessedEvents => Set<ProcessedEvent>();
+    public DbSet<ImportJob> ImportJobs => Set<ImportJob>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder) =>
         builder.Properties<Enum>().HaveConversion<string>();
@@ -39,6 +40,11 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
             e.ToTable(t => t.HasCheckConstraint("ck_grades_value_non_negative", "value >= 0"));
         });
         model.Entity<Document>().HasOne<Participant>().WithMany().HasForeignKey(d => d.ParticipantId);
+        model.Entity<ImportJob>(e =>
+        {
+            e.HasOne<Cycle>().WithMany().HasForeignKey(j => j.CycleId);
+            e.OwnsMany(j => j.Errors, b => b.ToJson());
+        });
         model.Entity<ProcessedEvent>().Property(p => p.ProcessedAt).HasDefaultValueSql("now()");
     }
 }
