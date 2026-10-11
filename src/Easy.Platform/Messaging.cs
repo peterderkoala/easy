@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Rebus.Bus;
 using Rebus.Config;
@@ -47,7 +48,25 @@ public static class Messaging
                     .OnReceive(new IncomingCorrelation(), PipelineRelativePosition.Before, typeof(DefaultRetryStep))
                     .OnSend(new OutgoingCorrelation(), PipelineRelativePosition.Before, typeof(FlowCorrelationIdStep))));
         }, onCreated: onCreated);
+
+        // ponytail: under WebApplicationFactory two threads stop the host at once (factory Dispose and Program's app.Run()),
+        // RebusBus.Dispose is not thread-safe, and Rebus.PostgreSql's OutboxForwarder.Dispose throws on a second call (#25,
+        // docs/research/rebus-postgresql-double-dispose.md). Serialize the bus's StopAsync; drop once disposal is idempotent upstream.
+        var rebus = builder.Services.Last(d => d.ServiceType == typeof(IHostedService));
+        builder.Services[builder.Services.IndexOf(rebus)] = ServiceDescriptor.Singleton<IHostedService>(p => new StopOnce((IHostedService)rebus.ImplementationFactory!(p)));
         return builder;
+    }
+
+    sealed class StopOnce(IHostedService inner) : IHostedService
+    {
+        Task? _stop;
+
+        public Task StartAsync(CancellationToken cancellationToken) => inner.StartAsync(cancellationToken);
+
+        public Task StopAsync(CancellationToken cancellationToken)
+        {
+            lock (inner) return _stop ??= inner.StopAsync(cancellationToken);
+        }
     }
 
     // Write requests run in one EF transaction; messages published during the request are stored in the outbox
