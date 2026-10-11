@@ -1,6 +1,7 @@
 using Easy.Data;
 using Easy.MainApi.Participants;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Rebus.Bus;
 
@@ -21,6 +22,8 @@ public static class ImportEndpoints
                 return Results.Problem("Year must be between 2000 and 2100.", statusCode: 400);
             if (file.Length > options.Value.MaxBytes) // the handler checks again; this keeps big files out of the broker
                 return Results.Problem($"File larger than {options.Value.MaxBytes} bytes.", statusCode: 400);
+            if (await db.Cycles.AnyAsync(c => c.Type == type && c.Year == year)) // S02; the handler checks again (uploads can race)
+                return Results.Problem("Cycle already exists.", statusCode: 409);
 
             using var buffer = new MemoryStream();
             await file.CopyToAsync(buffer);

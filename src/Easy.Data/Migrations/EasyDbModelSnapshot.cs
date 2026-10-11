@@ -105,6 +105,10 @@ namespace Easy.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_cycles");
 
+                    b.HasIndex("Type", "Year")
+                        .IsUnique()
+                        .HasDatabaseName("ix_cycles_type_year");
+
                     b.ToTable("cycles", (string)null);
                 });
 

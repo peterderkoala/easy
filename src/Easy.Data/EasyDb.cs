@@ -23,6 +23,7 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
 
     protected override void OnModelCreating(ModelBuilder model)
     {
+        model.Entity<Cycle>().HasIndex(c => new { c.Type, c.Year }).IsUnique(); // S02
         model.Entity<Participant>(e =>
         {
             e.HasOne<Cycle>().WithMany().HasForeignKey(p => p.CycleId);

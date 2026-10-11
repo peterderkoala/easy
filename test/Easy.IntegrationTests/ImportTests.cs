@@ -87,6 +87,41 @@ public class ImportTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<
     }
 
     [Fact]
+    public async Task Second_import_for_same_cycle_is_rejected()
+    {
+        await Import(ValidCsv);
+
+        var response = await Upload($"{Header}\nNeu;4713;F;S;App\n", admin);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(1, await Db(db => db.Cycles.CountAsync()));
+        Assert.Equal(2, await Db(db => db.Participants.CountAsync()));
+    }
+
+    // Two uploads can both pass the endpoint check; the handler and the unique index settle it.
+    [Fact]
+    public async Task Concurrent_imports_for_same_cycle_create_one_cycle()
+    {
+        Guid[] jobIds = [Guid.NewGuid(), Guid.NewGuid()];
+        await Db(async db =>
+        {
+            foreach (var id in jobIds)
+                db.ImportJobs.Add(new() { Id = id, CycleType = CycleType.Summer, Year = 2026, Status = ImportStatus.Queued });
+            return await db.SaveChangesAsync();
+        });
+        var keys = mainApi.Services.GetRequiredService<ParticipantKeys>();
+        var bus = mainApi.Services.GetRequiredService<IBus>();
+
+        await Task.WhenAll(jobIds.Select(id => bus.SendLocal(ImportCycle.Create(id, Encoding.UTF8.GetBytes(ValidCsv), keys))));
+
+        var jobs = await Task.WhenAll(jobIds.Select(Poll));
+        Assert.Equal(["Failed", "Succeeded"], jobs.Select(j => j.GetProperty("status").GetString()).Order());
+        Assert.Contains("Cycle already exists.", jobs.Single(j => j.GetProperty("status").GetString() == "Failed").GetProperty("errors").GetRawText());
+        Assert.Equal(1, await Db(db => db.Cycles.CountAsync()));
+        Assert.Equal(2, await Db(db => db.Participants.CountAsync()));
+    }
+
+    [Fact]
     public async Task Redelivered_import_message_creates_one_cycle()
     {
         var jobId = Guid.NewGuid();
