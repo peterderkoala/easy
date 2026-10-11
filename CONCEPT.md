@@ -124,7 +124,7 @@ For the planning agent. Each item needs a decision or check before the affected 
 | Virtual Room | Dedicated SignalR hub per exam session (S07). |
 | Split view | Grading UI: PDF left, comment sections with points right (S06). |
 | Correlation ID | ID that traces one operation across services and messages (S11). |
-| Encryption key (per participant) | Derived from participant data plus salt. Protects that participant's data (S02). |
+| Encryption key (per participant) | Random data key, wrapped by an external master secret (S02, ADR 0001). Protects that participant's data. |
 
 ### S00.3 Process
 
@@ -205,8 +205,8 @@ Easy replaces distributed manual coordination between IHK examiners with one sha
 
 ### Encryption and "forgetting"
 
-- `[DECIDED]` Encryption key is derived from participant information (with salt). It protects that participant's data and grades. Derived on demand, not cached server-side (deliberate, for security; performance is non-critical at 10–15 examiners). See S11.
-- "Forget" function: deletes a participant's encryption key, making their data effectively unreadable.
+- `[CLARIFICATION]` `[DECIDED]` Envelope encryption (ADR 0001): each participant has a random data key, wrapped by a master secret that lives outside the database (Docker secret file, `Easy.MainApi` only; KMS later behind an interface). Only the wrapped key and its master-secret version are stored. This replaces the earlier "derived from participant information plus salt". Encrypted: name, project title, CSV id number, comments, documents. Readable: points, status, display number. Threat model: database-only leak. See S11.
+- "Forget" function: deletes a participant's wrapped key and their SeaweedFS objects. Encrypted backups are kept about 30 days, so forget is reversible from a backup until they expire.
   - Manual action, admins only.
   - No automatic trigger.
   - Safeguard: simple confirmation dialog. No four-eyes principle.
@@ -515,7 +515,7 @@ One status per participant, split into four areas:
 ### GDPR
 
 - Relevant for data storage and the audit log.
-- Encryption via participant-specific key (S02). Deletion by key loss (S02).
+- Encryption via participant-specific key (S02). Deletion by wrapped-key and object deletion (S02).
 - `[OPEN]` Concrete requirements for data storage and audit log, incl. which data must be encrypted without losing findability (S10).
 
 ---
