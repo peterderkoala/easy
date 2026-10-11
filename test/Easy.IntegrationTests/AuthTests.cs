@@ -92,6 +92,13 @@ public sealed class KeycloakFixture : IAsyncLifetime
         return await TokenAsync(http, ("grant_type", "password"), ("client_id", clientId), ("username", "examiner"), ("password", "examiner"));
     }
 
+    // Client credentials of the notification service account (secret set on the container above).
+    public async Task<string> ServiceAccountTokenAsync()
+    {
+        using var http = new HttpClient();
+        return await TokenAsync(http, ("grant_type", "client_credentials"), ("client_id", "easy-notification"), ("client_secret", "test"));
+    }
+
     Task<string> TokenAsync(HttpClient http, params (string, string)[] fields) => TokenAsync(http, fields, "easy");
 
     async Task<string> TokenAsync(HttpClient http, (string, string)[] fields, string realm)
@@ -191,6 +198,17 @@ public class AuthTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<Ke
         Assert.Equal("admin@easy.local", examiner.Email);
         Assert.True(examiner.Active);
         Assert.False(string.IsNullOrEmpty(examiner.Subject));
+    }
+
+    [Fact]
+    public async Task Service_account_cannot_register_as_examiner()
+    {
+        var client = Host("main-api");
+
+        var response = await client.SendAsync(new(HttpMethod.Post, "/api/me")
+            { Headers = { Authorization = new AuthenticationHeaderValue("Bearer", await keycloak.ServiceAccountTokenAsync()) } });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]

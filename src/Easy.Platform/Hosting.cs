@@ -5,7 +5,7 @@ using Serilog;
 
 namespace Easy.Platform;
 
-// Wiring every host shares: logging, correlation ID, /health (S16, Compose healthchecks grep for "Healthy").
+// Wiring every host shares: logging, correlation ID, token validation (not in the gateway), /health (S16, Compose healthchecks grep for "Healthy").
 public static class Hosting
 {
     public static WebApplicationBuilder AddEasyPlatform(this WebApplicationBuilder builder, bool validateTokens = true)

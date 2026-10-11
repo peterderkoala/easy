@@ -5,6 +5,7 @@ using Easy.Data;
 using Easy.Platform;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
@@ -43,12 +44,14 @@ public class MessagingTests(Infra infra) : IAsyncLifetime
     {
         var client = publisher.GetTestClient();
         var failed = Guid.NewGuid();
+        var rejected = Guid.NewGuid();
         var committed = Guid.NewGuid();
 
         await Assert.ThrowsAnyAsync<Exception>(() => client.PostAsJsonAsync("/cycles?fail=true", failed));
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/cycles?reject=true", rejected)).StatusCode);
         (await client.PostAsJsonAsync("/cycles", committed)).EnsureSuccessStatusCode();
 
-        // Forwarded in order, so a leaked event from the failed request would arrive first.
+        // Forwarded in order, so a leaked event from the failed or rejected request would arrive first.
         Assert.Equal(committed, (await received.Next()).Event.CycleId);
         Assert.Equal([committed], await Query(db => db.Cycles.Select(c => c.Id).ToListAsync()));
     }
@@ -117,13 +120,14 @@ public class MessagingTests(Infra infra) : IAsyncLifetime
         using (var scope = app.Services.CreateScope())
             await scope.ServiceProvider.GetRequiredService<EasyDb>().Database.MigrateAsync();
         app.UseEasyPlatform().UseOutbox();
-        app.MapPost("/cycles", async ([FromBody] Guid id, bool? fail, EasyDb db, IBus bus) =>
+        app.MapPost("/cycles", async ([FromBody] Guid id, bool? fail, bool? reject, EasyDb db, IBus bus) =>
         {
             db.Cycles.Add(new Cycle { Id = id, Type = CycleType.Winter, Year = 2026 });
             await db.SaveChangesAsync();
             await bus.Publish(new CycleImported(id));
             if (fail == true)
                 throw new InvalidOperationException("fails after save and publish");
+            return reject == true ? Results.BadRequest() : Results.Ok();
         });
         await app.StartAsync();
         return app;

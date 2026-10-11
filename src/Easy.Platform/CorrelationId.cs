@@ -22,9 +22,7 @@ public static partial class CorrelationId
 
     public static async Task Handle(HttpContext context, RequestDelegate next)
     {
-        string id = context.Request.Headers[Header].ToString();
-        if (!Valid().IsMatch(id)) // client input ends up in logs: no free text
-            id = Guid.NewGuid().ToString();
+        string id = ValidOrNew(context.Request.Headers[Header].ToString());
 
         context.Request.Headers[Header] = id;
         context.Response.Headers[Header] = id;
@@ -32,6 +30,9 @@ public static partial class CorrelationId
         using (LogContext.PushProperty("CorrelationId", id))
             await next(context);
     }
+
+    // Incoming IDs end up in logs: no free text.
+    internal static string ValidOrNew(string? id) => id is not null && Valid().IsMatch(id) ? id : Guid.NewGuid().ToString();
 
     [GeneratedRegex("^[A-Za-z0-9-]{1,64}$")]
     private static partial Regex Valid();

@@ -16,9 +16,9 @@ public static class Me
             var examiner = await db.Examiners.SingleOrDefaultAsync(e => e.Subject == subject)
                 ?? db.Examiners.Add(new() { Subject = subject, DisplayName = "", Email = "" }).Entity;
             examiner.Role = user.IsInRole("admin") ? ExaminerRole.Admin : ExaminerRole.Examiner;
-            examiner.DisplayName = user.FindFirstValue("name") ?? user.Identity!.Name!;
+            examiner.DisplayName = user.FindFirstValue("name") ?? user.Identity?.Name ?? subject;
             examiner.Email = user.FindFirstValue("email") ?? "";
             await db.SaveChangesAsync();
             return new { examiner.DisplayName, Role = examiner.Role.ToString(), examiner.Active };
-        }).RequireAuthorization();
+        }).RequireAuthorization(p => p.RequireRole("examiner")); // admins hold it too; service accounts do not
 }

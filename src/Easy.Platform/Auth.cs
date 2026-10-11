@@ -21,6 +21,7 @@ public static class Auth
             builder.Configuration.GetSection("Keycloak").Bind(options);
             options.Audience = "easy-api";
             options.MapInboundClaims = false;
+            options.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(30); // default 5 min would double the 5-min token lifetime
             options.TokenValidationParameters.NameClaimType = "preferred_username";
             options.TokenValidationParameters.RoleClaimType = "roles"; // flat claim from the realm's role mapper
             options.Events = new()

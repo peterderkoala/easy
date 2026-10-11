@@ -46,7 +46,7 @@ public static class Messaging
     }
 
     // Write requests run in one EF transaction; messages published during the request are stored in the outbox
-    // on the same connection and transaction, and both commit together after the endpoint returns.
+    // on the same connection and transaction, and both commit together after the endpoint returns a non-error status.
     // ponytail: the response may start before the commit; buffer or commit earlier if endpoints stream large bodies.
     public static IApplicationBuilder UseOutbox(this IApplicationBuilder app) =>
         app.UseWhen(c => !(HttpMethods.IsGet(c.Request.Method) || HttpMethods.IsHead(c.Request.Method) || HttpMethods.IsOptions(c.Request.Method)),
@@ -58,6 +58,8 @@ public static class Messaging
                 scope.UseOutbox((NpgsqlConnection)db.GetDbConnection(), (NpgsqlTransaction)transaction.GetDbTransaction());
 
                 await next(context);
+                if (context.Response.StatusCode >= 400)
+                    return; // error result without exception: dispose rolls back rows and messages
 
                 await scope.CompleteAsync();
                 await transaction.CommitAsync();
@@ -67,7 +69,8 @@ public static class Messaging
     // (Rebus opens it per message and commits it after the handler). False = already processed, skip.
     public static async Task<bool> FirstDelivery(this IMessageContext context, string eventId)
     {
-        // Key is internal to Rebus.PostgreSql (OutboxExtensions.CurrentOutboxConnectionKey); versions are pinned.
+        // ponytail: key is internal to Rebus.PostgreSql (OutboxExtensions.CurrentOutboxConnectionKey), pinned versions keep it stable;
+        // re-check on every Rebus.PostgreSql upgrade, or switch to the hand-rolled outbox (ADR 0003 fallback) if it moves.
         var outbox = (OutboxConnection)context.TransactionContext.Items["current-outbox-connection"];
         await using var insert = new NpgsqlCommand("INSERT INTO processed_events (id) VALUES ($1) ON CONFLICT DO NOTHING", outbox.Connection, outbox.Transaction)
         {
@@ -80,7 +83,7 @@ public static class Messaging
     {
         public async Task Process(IncomingStepContext context, Func<Task> next)
         {
-            var id = context.Load<TransportMessage>().Headers.GetValueOrDefault(Headers.CorrelationId);
+            var id = CorrelationId.ValidOrNew(context.Load<TransportMessage>().Headers.GetValueOrDefault(Headers.CorrelationId));
             CorrelationId.Current = id;
             using (LogContext.PushProperty("CorrelationId", id))
                 await next();
