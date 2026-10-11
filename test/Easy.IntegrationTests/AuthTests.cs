@@ -103,7 +103,8 @@ public sealed class KeycloakFixture : IAsyncLifetime
         new(fields.Select(f => KeyValuePair.Create(f.Key, f.Value)));
 }
 
-public class AuthTests(KeycloakFixture keycloak) : IClassFixture<KeycloakFixture>, IDisposable
+[Collection(nameof(Infra))] // MainApi needs Postgres and RabbitMQ at start-up
+public class AuthTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<KeycloakFixture>, IDisposable
 {
     readonly List<IDisposable> hosts = [];
 
@@ -157,7 +158,7 @@ public class AuthTests(KeycloakFixture keycloak) : IClassFixture<KeycloakFixture
     [Fact]
     public async Task Gateway_does_not_validate_tokens_services_do()
     {
-        var mainApi = Track(new WebApplicationFactory<mainapi::Program>().WithWebHostBuilder(b => Keycloak(b)));
+        var mainApi = Track(infra.Configure(new WebApplicationFactory<mainapi::Program>()).WithWebHostBuilder(b => Keycloak(b)));
         mainApi.UseKestrel(0);
         mainApi.StartServer();
         // The gateway knows no Keycloak at all: it forwards whatever bearer token it gets.
@@ -186,7 +187,7 @@ public class AuthTests(KeycloakFixture keycloak) : IClassFixture<KeycloakFixture
 
     HttpClient Host(string service, Action<IServiceCollection>? services = null) => service switch
     {
-        "main-api" => Client(new WebApplicationFactory<mainapi::Program>(), services),
+        "main-api" => Client(infra.Configure(new WebApplicationFactory<mainapi::Program>()), services),
         "exam-room" => Client(new WebApplicationFactory<examroom::Program>(), services),
         "notification" => Client(new WebApplicationFactory<notification::Program>(), services),
         "scheduler" => Client(new WebApplicationFactory<scheduler::Program>(), services),

@@ -27,7 +27,7 @@ For the planning agent. Each item needs a decision or check before the affected 
 ### Consistency and integrity
 
 - **Frozen grading document vs. later corrections** [S06, S07]. The signed document can diverge from live points. Only the audit log explains the gap. Confirm this is accepted, or define a re-issue process.
-- **Dual write: DB commit + RabbitMQ publish** [S09, S11, S12]. No outbox pattern is specified. A crash between commit and publish loses events (e.g. upload notification, session end).
+- **Dual write: DB commit + RabbitMQ publish** [S09, S11, S12]. Resolved: Rebus.PostgreSql transactional outbox (ADR 0003, S09). Remaining risk: the library calls the outbox experimental (versions pinned).
 - **Concurrent edits to the same score** [S03, S06]. "In progress" is a UI marker only. Optimistic concurrency or locking is not defined.
 - **Application conflicting decisions** [S03, S15]. Two examiners may decide differently. Resolution rule is open.
 - **Examiner role for applications unclear** [S03, S15]. "Two examiners" is not restricted to registered examiners. Confirm who may approve.
@@ -474,7 +474,8 @@ One status per participant, split into four areas:
 ### Database
 
 - One shared relational database for all cycles. No schema per cycle.
-- PostgreSQL with EF Core. Data model still to be designed.
+- PostgreSQL with EF Core. Skeleton schema (S14 subset) is `EasyDb` in `Easy.Data`, snake_case names, EF migrations applied by MainApi at start-up. The Rebus outbox table `rebus_outbox` is created by Rebus itself. Feature slices extend the model.
+- `[DECIDED]` Write requests in MainApi (`UseOutbox` middleware in `Platform`) run in one EF transaction; events published during the request go to the outbox on the same connection and commit with it (ADR 0003). Consumers call `FirstDelivery(eventId)`, which records the ID in `processed_events` inside the handler's transaction.
 - Point values from all sources (written, documentation, oral, interim) in one shared table with a type column, not separate tables.
   - Only the current value per source. No history in this table.
   - History is handled exclusively by the audit log (S11).
@@ -517,7 +518,7 @@ One status per participant, split into four areas:
 
 - The system must be auditable.
 - `[DECIDED]` Separate table in the same Postgres DB. No Elasticsearch or Loki. Reason: joins with correlation ID, status, points, and grading documents; transactional consistency with business changes.
-- `[DECIDED]` Central, reusable audit component: an own EF Core `SaveChangesInterceptor` in `Platform`, no library. Opt-in `[Audited]` attribute on properties. `actor_id` is the token `sub` (service accounts included), `correlation_id` comes from the ambient context. Writes synchronously in the same transaction as the business change. No separate audit service: it would either be a thin wrapper or, with async messaging, lose transactional safety.
+- `[DECIDED]` Central, reusable audit component: an own EF Core `SaveChangesInterceptor` in `Platform`, no library. Opt-in `[Audited]` attribute on properties. `actor_id` is the token `sub` (service accounts included), `correlation_id` comes from the ambient context (`CorrelationId.Current`, set by the HTTP middleware and the Rebus incoming step). Writes synchronously in the same transaction as the business change. No separate audit service: it would either be a thin wrapper or, with async messaging, lose transactional safety.
 - `[DECIDED]` Audit log visible to admins only.
 - Logged: every value change on grading-relevant data. Not every keystroke.
 - Skeleton audits only the `Grade` value, always type `initial`. The `correction` logic needs the "closed area" state and comes with the grading feature slice.
