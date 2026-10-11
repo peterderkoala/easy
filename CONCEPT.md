@@ -198,6 +198,8 @@ Easy replaces distributed manual coordination between IHK examiners with one sha
 - `[CLARIFICATION]` The sample suggests the IHK data may carry more than name, title and ID. IHK columns: participant name ("Vorname Nachname"), identification number (`Prüfl.-Nr.`, integer), training provider (`/ Backhaus IT` marks a cooperating company), a status column with the same text in every row (ignored), and project title. To confirm against the real CSV.
 - `[CLARIFICATION]` The identification number is **not a unique key**. It relates to the participant and can be issued again in later years, so it is unique at best within one cycle and must not be used to match participants across cycles. Whether it is unique within a cycle, and whether one person can appear with two numbers, is `[OPEN]` (S10).
 - Columns for language and review comment in the sample were added by an examiner after reading the PDF. They are not part of the IHK file.
+- `[DECIDED]` Skeleton parsing (the real layout is still unknown, so all settings are configurable): CsvHelper, UTF-8 (BOM accepted), delimiter `;` by default. A header row is required; columns are matched case-insensitively by name. Required: name, identification number, project title. Other columns (provider, status) are ignored. The cycle's type and year come from the import form, not the file. Import is admin-only (S05). The original file is not stored, only a result summary.
+- `[DECIDED]` Validation is all-or-nothing: required fields non-empty, ID is an integer, no duplicate IDs inside the file, at most 500 rows and 1 MB. Any error means nothing is imported; the job ends as failed with row errors (row number, column, message) shown to the admin, who uploads a corrected file. A valid file creates the cycle and all participants in one transaction with the outbox event. The import job has an ID, so a redelivered message does not create a second cycle.
 - Import runs asynchronously via RabbitMQ (Rebus), not synchronously in the request.
 - Live progress via SignalR: nice-to-have. At max ~120 rows, long waits are not expected unless AI tooling is added to the import.
 
@@ -205,7 +207,8 @@ Easy replaces distributed manual coordination between IHK examiners with one sha
 
 - In addition to the CSV identification number, Easy assigns an internal ID:
   - Primary key: GUID.
-  - Display: sequential, examiner-readable number per cycle, e.g. `WS2026-014`.
+  - Display: sequential, examiner-readable number per cycle, e.g. `WS2026-014` (type, year, 3-digit counter). Assigned at import in file order, unique per cycle, gaps are fine.
+- `[DECIDED]` The identification number is encrypted (S02 encryption) and not unique across years. Uniqueness within a cycle is a unique index on `(cycle_id, csv_id_hash)`, where the hash is an HMAC-SHA256 blind index over the ID, keyed from the master secret. "Forget" sets the hash to null. Participants are never matched across cycles. The same name with different numbers is accepted as two participants.
 
 ### Encryption and "forgetting"
 
@@ -568,10 +571,10 @@ Proposed entities, derived from S02–S12. Not a final schema.
 | Entity | Key fields | Relations / notes |
 |---|---|---|
 | Cycle | id, type (winter/summer), year, per-module due date and deadline | 1–n Participant |
-| Participant | id (GUID), cycle_id, display_no (e.g. `WS2026-014`), csv_id, name, project_title, application_status, written_status, documentation_status, oral_status, key_forgotten flag | n–m Tag; 1–n Registration; 1–n Grade; 1–n Document; 1–n Comment |
+| Participant | id (GUID), cycle_id, display_no (e.g. `WS2026-014`), csv_id (encrypted), csv_id_hash (blind index, null after forget), name (encrypted), project_title (encrypted), application_status, written_status, documentation_status, oral_status (four nullable enums, S04), key_forgotten flag | n–m Tag; 1–n Registration; 1–n Grade; 1–n Document; 1–n Comment |
 | Examiner | id, external subject (Keycloak), role (admin/examiner), active flag | 1–n Signature (optional) |
 | Registration | participant_id, examiner_id | Documentation pair (2 examiners) |
-| Grade | participant_id, source (written/documentation/oral/interim), value, updated_by, updated_at | Current value only, no history (S09) |
+| Grade | participant_id, source (written/documentation/oral/interim), value, updated_by, updated_at | Current value only, no history (S09). `source` enum, unique on `(participant_id, source)`, `value` numeric(5,1) non-negative; maximum per source not enforced in the skeleton |
 | DocumentationScore | participant_id, examiner_id, section, points | Per-examiner; hidden from partner until summary view (S06) |
 | Comment | participant_id, area, author_id, counted flag, text | Uncounted comments from non-registered examiners |
 | OralSession | id, participant_id, status (open/closed) | 3 main examiners; joined examiners; closed = final |
@@ -584,6 +587,8 @@ Proposed entities, derived from S02–S12. Not a final schema.
 | AuditEntry | id, correlation_id, actor_id, entity, field, old, new, type (initial/correction), timestamp | Admin-only read (S11) |
 
 Derived, not stored: overall grade (S04, S09).
+
+Skeleton subset (decided): Cycle, Participant, Examiner (mirror of the Keycloak subject, created on first login), Grade, AuditEntry, Document (participant id, generated object key, size, uploaded at), the Rebus outbox, and a processed-events table. Import sets application status `submitted`; the first upload sets documentation status `submitted`; written and oral stay null.
 
 ---
 
