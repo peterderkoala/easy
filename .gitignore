@@ -435,6 +435,10 @@ docs/samples/**
 !docs/samples/**/
 !docs/samples/**/*.md
 
+# Claude Code: personal settings and agent worktrees stay local; shared settings and skills are tracked
+.claude/settings.local.json
+.claude/worktrees/
+
 # Obsidian: per-user window state
 docs/vault/**/.obsidian/workspace*.json
 
