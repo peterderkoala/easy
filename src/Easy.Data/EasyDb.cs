@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Easy.Data;
@@ -45,6 +46,8 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
 public static class EasyDbRegistration
 {
     // Connection string is resolved from configuration when the context is created.
+    // Interceptors registered in DI (the Platform audit interceptor) are attached to every context.
     public static IServiceCollection AddEasyData(this IServiceCollection services) =>
-        services.AddDbContext<EasyDb>(o => o.UseNpgsql("Name=ConnectionStrings:Default").UseSnakeCaseNamingConvention());
+        services.AddDbContext<EasyDb>((sp, o) => o.UseNpgsql("Name=ConnectionStrings:Default").UseSnakeCaseNamingConvention()
+            .AddInterceptors(sp.GetServices<IInterceptor>()));
 }

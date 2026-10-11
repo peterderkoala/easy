@@ -1,5 +1,9 @@
 namespace Easy.Data;
 
+// Opt-in audit (S11): the Platform audit interceptor writes an AuditEntry for every change of a marked property.
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class AuditedAttribute : Attribute;
+
 // Skeleton subset of S14. Feature slices add the rest.
 
 public enum CycleType { Winter, Summer }
@@ -68,7 +72,7 @@ public class Grade
 {
     public Guid ParticipantId { get; set; }
     public GradeSource Source { get; set; }
-    public decimal Value { get; set; }
+    [Audited] public decimal Value { get; set; }
     public Guid UpdatedBy { get; set; } // Examiner.Id
     public DateTimeOffset UpdatedAt { get; set; }
 }

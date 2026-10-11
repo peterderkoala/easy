@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 
@@ -13,6 +14,7 @@ public static class Hosting
         if (validateTokens) Auth.Add(builder);
         builder.Services.AddSerilog(config => Logging.Configure(config, builder.Environment.ApplicationName));
         builder.Services.AddHealthChecks();
+        builder.Services.AddHttpContextAccessor().AddSingleton<IInterceptor, AuditInterceptor>(); // picked up by AddEasyData
         return builder;
     }
 
