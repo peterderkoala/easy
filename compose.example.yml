@@ -1,0 +1,140 @@
+# Deployment template (S16). Copy to compose.prod.yml (gitignored) and fill in the CHANGE-ME values.
+# Differences to compose.dev.yml: internal network is not reachable from outside, only the gateway
+# and keycloak are public, no debug ports, pinned images, restart policies, Keycloak in production mode.
+# TLS termination point is still open (S16); put a reverse proxy in front of gateway and keycloak.
+name: easy
+
+networks:
+  public: {}
+  internal:
+    internal: true # no outbound or inbound access except through the other networks
+
+secrets:
+  master_secret:
+    file: ./secrets/master_secret
+
+services:
+  gateway:
+    build: ./src/Easy.Gateway
+    restart: unless-stopped
+    networks: [public, internal]
+    ports: ["8080:8080"] # behind the TLS reverse proxy
+    depends_on: [main-api, exam-room]
+
+  main-api:
+    build: ./src/Easy.MainApi
+    restart: unless-stopped
+    networks: [internal]
+    secrets: [master_secret] # MainApi only (ADR 0001)
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
+      Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Seaweed__Endpoint: http://seaweedfs:8333
+      Upload__MaxBytes: ${UPLOAD_MAX_BYTES:-15728640}
+      MasterSecretFile: /run/secrets/master_secret
+    depends_on:
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      seaweedfs: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+
+  exam-room:
+    build: ./src/Easy.ExamRoom
+    restart: unless-stopped
+    networks: [internal]
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
+      Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+    depends_on: [main-api] # migrations run in main-api; add a healthcheck once /health exists
+
+  notification:
+    build: ./src/Easy.Notification
+    restart: unless-stopped
+    networks: [internal]
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
+      Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Keycloak__ClientSecret: ${NOTIFICATION_CLIENT_SECRET}
+      Smtp__Host: ${SMTP_HOST:-mailpit}
+      Smtp__Port: ${SMTP_PORT:-1025}
+      Smtp__User: ${SMTP_USER:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+    depends_on: [main-api, mailpit]
+
+  scheduler:
+    build: ./src/Easy.Scheduler
+    restart: unless-stopped
+    networks: [internal]
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
+      Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Keycloak__ClientSecret: ${SCHEDULER_CLIENT_SECRET}
+    depends_on: [main-api]
+
+  postgres:
+    restart: unless-stopped
+    image: postgres:17.CHANGE-ME
+    networks: [internal]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: easy
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d easy"]
+      interval: 5s
+      retries: 10
+
+  rabbitmq:
+    restart: unless-stopped
+    image: rabbitmq:4.CHANGE-ME
+    networks: [internal]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 10
+
+  seaweedfs:
+    # Pin a release that contains PR 11578 (presigned + SSE-C fix); verify in the SSE-C spike.
+    restart: unless-stopped
+    image: chrislusf/seaweedfs:CHANGE-ME-pinned-release
+    command: server -s3 -dir=/data
+    networks: [internal]
+    volumes: [seaweedfs-data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9333/cluster/status >/dev/null"]
+      interval: 10s
+      retries: 10
+
+  keycloak:
+    restart: unless-stopped
+    image: quay.io/keycloak/keycloak:26.8.0
+    command: start --optimized --import-realm # build an optimized image with KC_HOSTNAME set
+    networks: [public, internal] # the browser logs in directly (S05), so keycloak must be reachable
+    ports: ["8081:8080"] # behind the TLS reverse proxy
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./deploy/keycloak:/opt/keycloak/data/import:ro # realm import file: spec ticket
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; grep -q UP <&3"]
+      interval: 10s
+      retries: 20
+
+  mailpit:
+    restart: unless-stopped
+    image: axllent/mailpit # drop mailpit in production; point Smtp__* at Mailcow
+    networks: [internal]
+
+volumes:
+  postgres-data: {}
+  seaweedfs-data: {}

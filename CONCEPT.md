@@ -647,18 +647,22 @@ Skeleton subset (decided): Cycle, Participant, Examiner (mirror of the Keycloak 
 - Browser → Keycloak directly for login (public client, S05).
 - Each service validates tokens itself against Keycloak signing keys (S09).
 - Events: services publish to RabbitMQ with correlation ID in headers (S11). Notification and Hangfire consume.
-- Documents: upload path (proxied through main-api vs. presigned direct to SeaweedFS) open.
+- Documents: uploads are proxied through main-api (S06).
 
 ### Environments and config
 
 - Dev: local Docker Compose. Prod: bitfabrik.it. Staging: open.
-- Secrets: `.env` and Docker environment variables. Confidential client secrets per service (S05). Mechanism for secret storage beyond `.env`: open.
-- Network: only gateway publicly reachable; all others on internal network. TLS termination point: open.
+- `[DECIDED]` Compose files in the repo root: `compose.dev.yml` is the dev topology (all nine containers plus Mailpit, ports published on `127.0.0.1` only). `compose.example.yml` is a deployment template: copy it to `compose.prod.yml` (gitignored) and fill in the `CHANGE-ME` values. It differs by an `internal` network without outside access, no debug ports, pinned images, restart policies and Keycloak in production mode. Start in dev: `cp .env.example .env`, create `secrets/master_secret`, then `docker compose -f compose.dev.yml up --build`.
+- `[DECIDED]` Secrets: `.env.example` is committed with placeholders, the real `.env` is gitignored. Service-account client secrets (notification, scheduler; S05), SMTP settings and the upload limit live in `.env`. The master secret (S02) is the gitignored file `secrets/master_secret`, mounted through Compose `secrets:` into main-api only. Secret storage beyond this: open.
+- `[DECIDED]` Mail: Mailpit is the dev mail catcher (UI on `127.0.0.1`). SMTP host, port and credentials come only from environment variables (`Smtp__*`); production points them at Mailcow.
+- `[DECIDED]` Networks: only the gateway is publicly reachable, all others are on the internal network. Exception: Keycloak must also be reachable by the browser (login goes directly to it, S05), so it joins the public network behind the TLS reverse proxy. TLS termination point: open.
+- `[DECIDED]` Start-up order through healthchecks and `depends_on: service_healthy`: Postgres, RabbitMQ, SeaweedFS and Keycloak (realm import) first, then main-api (runs the migrations), then the other hosts and the gateway. One database with a `hangfire` schema, one connection string per host. The app hosts get healthchecks once a `/health` endpoint exists.
+- Not written yet: the Keycloak realm import file (`deploy/keycloak/`) and the app host projects under `src/`, so the app services cannot build yet.
 
 ### Operations
 
 - Backups: Postgres dumps, SeaweedFS volumes, Keycloak realm export. Schedule, retention, restore test: open.
-- Logging: structured logs with correlation ID. Tracing and log stack: not chosen (S11 rules out Elasticsearch/Loki for audit only, not for ops logs; open).
+- `[DECIDED]` Logging: Serilog compact JSON to stdout in every host, enriched with service name and correlation ID (HTTP middleware and a Rebus incoming step). No log stack in the skeleton: `docker compose logs`. Logs never contain participant data. Tracing and a log stack are open (S11 rules out Elasticsearch/Loki for audit only, not for ops logs).
 - Monitoring and alerting: not defined.
 - Scaling: exam-room scalable; other containers assumed single-instance (open).
 - Limits: document upload max 15 MB by default, configurable by environment variable and enforced (S06).
