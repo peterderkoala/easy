@@ -14,10 +14,10 @@ For the planning agent. Each item needs a decision or check before the affected 
 
 ### Security and privacy
 
-- **Encryption "forget" may not delete anything** [S02]. The key is derived from participant data plus salt, on demand. If both inputs live in the database, anyone with DB access can re-derive it. Needed: key material from outside the DB (e.g. examiner-held secret or external KMS), and a defined salt location.
+- **RESOLVED (ADR 0001, S02): Encryption "forget" may not delete anything** [S02]. Now envelope encryption with an external master secret; no salt. Original problem: The key is derived from participant data plus salt, on demand. If both inputs live in the database, anyone with DB access can re-derive it. Needed: key material from outside the DB (e.g. examiner-held secret or external KMS), and a defined salt location.
 - **Audit log may hold personal data** [S11]. Old/new values of graded fields may contain personal data. Unclear whether audit rows are encrypted or purged on "forget".
 - **Unlimited retention conflicts with GDPR storage limitation** [S11]. Even with "forget", indefinite retention of personal records needs a legal check.
-- **Documents survive "forget" as ciphertext** [S06, S02]. SeaweedFS objects remain stored. Deletion of the object, not only key loss, should be considered.
+- **RESOLVED (ADR 0001, S02): Documents survive "forget" as ciphertext** [S06, S02]. Forget now also deletes the SeaweedFS objects. Original problem: SeaweedFS objects remain stored. Deletion of the object, not only key loss, should be considered.
 - **SSE-C enforcement unverified** [S06]. Relies on a current SeaweedFS version and a read-test that is not yet done.
 - **Blinding is application-level only** [S06]. Safe only if the API never sends the partner's scores. This needs an explicit DTO rule and test in S09.
 - **Background consumers have no authorization model** [S09]. Notification runs without examiner context. Rules for which claims or service identity it uses are undefined.
