@@ -18,14 +18,13 @@ namespace Easy.IntegrationTests;
 [Collection(nameof(Infra))]
 public class NotificationTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifetime
 {
-    readonly HttpClient mailpit = new() { BaseAddress = new(infra.MailpitApi) };
     WebApplicationFactory<mainapi::Program> mainApi = null!;
     WebApplicationFactory<notification::Program> notifications = null!;
     Guid participant;
 
     public async Task InitializeAsync()
     {
-        await mailpit.DeleteAsync("/api/v1/messages");
+        await infra.ClearMails();
         string database = infra.NewDatabase();
         mainApi = infra.Configure(new WebApplicationFactory<mainapi::Program>(), database).WithWebHostBuilder(b => b
             .UseSetting("Keycloak:Authority", keycloak.Issuer)
@@ -54,7 +53,6 @@ public class NotificationTests(KeycloakFixture keycloak, Infra infra) : IAsyncLi
     {
         await notifications.DisposeAsync();
         await mainApi.DisposeAsync();
-        mailpit.Dispose();
     }
 
     [Fact]
@@ -67,7 +65,7 @@ public class NotificationTests(KeycloakFixture keycloak, Infra infra) : IAsyncLi
         });
         response.EnsureSuccessStatusCode();
 
-        var mail = Assert.Single(await Mails(expected: 1));
+        var mail = Assert.Single(await infra.Mails(expected: 1));
         Assert.Equal("aktiv@easy.local", mail.GetProperty("To")[0].GetProperty("Address").GetString());
         Assert.Contains("Dokumentation", mail.GetProperty("Subject").GetString());
         Assert.Contains("WS2026-007", mail.GetProperty("Snippet").GetString());
@@ -82,18 +80,9 @@ public class NotificationTests(KeycloakFixture keycloak, Infra infra) : IAsyncLi
         await bus.Publish(uploaded);
         await bus.Publish(uploaded);
 
-        await Mails(expected: 1);
+        await infra.Mails(expected: 1);
         await Task.Delay(TimeSpan.FromSeconds(2)); // give the duplicate time to (not) send
-        Assert.Single(await Mails(expected: 1));
+        Assert.Single(await infra.Mails(expected: 1));
     }
 
-    async Task<List<JsonElement>> Mails(int expected)
-    {
-        for (var until = DateTime.UtcNow.AddSeconds(20); ; await Task.Delay(200))
-        {
-            var mails = (await mailpit.GetFromJsonAsync<JsonElement>("/api/v1/messages")).GetProperty("messages").EnumerateArray().ToList();
-            if (mails.Count >= expected || DateTime.UtcNow > until)
-                return mails;
-        }
-    }
 }

@@ -129,7 +129,7 @@ public static class Messaging
         }
     }
 
-    // Entry points (HTTP middleware, later Hangfire jobs) set CorrelationId.Current; Rebus carries it in rbs2-corr-id.
+    // Entry points (HTTP middleware, Hangfire jobs) set CorrelationId.Current; Rebus carries it in rbs2-corr-id.
     sealed class OutgoingCorrelation : IOutgoingStep
     {
         public Task Process(OutgoingStepContext context, Func<Task> next)

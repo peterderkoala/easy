@@ -20,3 +20,10 @@ public record DocumentUploaded(Guid DocumentId, Guid ParticipantId)
 {
     public string EventId => $"document-uploaded:{DocumentId}";
 }
+
+// A module's due date is near (S12). Published by the scheduler without the outbox; the business key makes retries and
+// same-day re-runs one event, while each remaining-days step is a new one.
+public record DeadlineApproaching(Guid CycleId, string Module, DateOnly DueDate, int DaysLeft)
+{
+    public string EventId => $"deadline:{CycleId}:{Module}:{DueDate:yyyy-MM-dd}:{DaysLeft}";
+}

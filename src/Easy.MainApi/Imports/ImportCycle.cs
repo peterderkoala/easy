@@ -54,7 +54,7 @@ public class ImportCycleHandler(EasyDb db, ParticipantKeys keys, IOptions<Import
         }
 
         var cycle = db.Cycles.Add(new() { Id = Guid.NewGuid(), Type = job.CycleType, Year = job.Year }).Entity;
-        string prefix = $"{(job.CycleType == CycleType.Winter ? "WS" : "SS")}{job.Year}";
+        string prefix = Cycle.Label(job.CycleType, job.Year);
         for (int i = 0; i < result.Rows.Count; i++)
         {
             var row = result.Rows[i];

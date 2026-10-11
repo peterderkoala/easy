@@ -12,7 +12,7 @@ public static partial class CorrelationId
 
     static readonly AsyncLocal<string?> current = new();
 
-    // Ambient ID of the running operation (HTTP request, Rebus message, later Hangfire job).
+    // Ambient ID of the running operation (HTTP request, Rebus message, Hangfire job).
     // Outgoing messages carry it in rbs2-corr-id; the audit entry stores it.
     public static string? Current
     {

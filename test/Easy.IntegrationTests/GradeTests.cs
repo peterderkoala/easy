@@ -1,6 +1,5 @@
 extern alias mainapi;
 
-using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -10,9 +9,6 @@ using Easy.Platform;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Rebus.Activation;
-using Rebus.Config;
-using Rebus.Messages;
 
 namespace Easy.IntegrationTests;
 
@@ -149,34 +145,5 @@ public class GradeTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifetime
 
     Task Db(Func<EasyDb, Task> action) => Db(async db => { await action(db); return 0; });
 
-    async Task<GradeConsumer> Consumer()
-    {
-        var consumer = new GradeConsumer();
-        var bus = Configure.With(consumer.Activator)
-            .Transport(t => t.UseRabbitMq(infra.Rabbit.GetConnectionString(), $"test-{Guid.NewGuid():N}"))
-            .Start();
-        await bus.Subscribe<GradeChanged>();
-        return consumer;
-    }
-
-    public record Delivery(GradeChanged Event, string? CorrelationId);
-
-    public sealed class GradeConsumer : IDisposable
-    {
-        readonly BlockingCollection<Delivery> received = new();
-
-        public BuiltinHandlerActivator Activator { get; } = new();
-
-        public GradeConsumer() =>
-            Activator.Handle<GradeChanged>((_, context, message) =>
-            {
-                received.Add(new(message, context.Headers.GetValueOrDefault(Headers.CorrelationId)));
-                return Task.CompletedTask;
-            });
-
-        public Task<Delivery> Next() => Task.Run(() =>
-            received.TryTake(out var delivery, TimeSpan.FromSeconds(20)) ? delivery : throw new TimeoutException("no GradeChanged received"));
-
-        public void Dispose() => Activator.Dispose();
-    }
+    Task<EventConsumer<GradeChanged>> Consumer() => EventConsumer<GradeChanged>.Start(infra);
 }

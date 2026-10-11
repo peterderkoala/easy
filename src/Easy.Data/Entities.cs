@@ -15,6 +15,9 @@ public class Cycle
     public int Year { get; set; }
     public DateOnly? DocumentationDueDate { get; set; }
     public DateOnly? DocumentationDeadline { get; set; }
+
+    // WS2026 / SS2026: prefix of display numbers and the cycle's name in mails.
+    public static string Label(CycleType type, int year) => $"{(type == CycleType.Winter ? "WS" : "SS")}{year}";
 }
 
 // Status values: S04 only.

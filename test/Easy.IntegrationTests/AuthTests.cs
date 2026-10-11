@@ -234,7 +234,7 @@ public class AuthTests(KeycloakFixture keycloak, Infra infra) : IDisposable
         "main-api" => Client(infra.Configure(new WebApplicationFactory<mainapi::Program>()), services),
         "exam-room" => Client(new WebApplicationFactory<examroom::Program>(), services),
         "notification" => Client(infra.Configure(new WebApplicationFactory<notification::Program>()), services), // Rebus endpoint since spec 7
-        "scheduler" => Client(new WebApplicationFactory<scheduler::Program>(), services),
+        "scheduler" => Client(infra.Configure(new WebApplicationFactory<scheduler::Program>()), services), // Hangfire and Rebus since spec 9
         _ => throw new ArgumentOutOfRangeException(nameof(service)),
     };
 

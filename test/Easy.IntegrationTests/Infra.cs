@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Net.Http.Json;
+using System.Text.Json;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -14,7 +16,9 @@ namespace Easy.IntegrationTests;
 // One Postgres and one RabbitMQ for the whole run. Each test takes its own database.
 public sealed class Infra : IAsyncLifetime
 {
-    public PostgreSqlContainer Postgres { get; } = new PostgreSqlBuilder("postgres:17").Build();
+    // ponytail: every test has its own database and so its own Npgsql pool, whose idle connections outlive the test host,
+    // so the default 100 runs out; raised instead of clearing pools per test. Clear them on dispose if 500 runs out too.
+    public PostgreSqlContainer Postgres { get; } = new PostgreSqlBuilder("postgres:17").WithCommand("-c", "max_connections=500").Build();
 
     // Fixed host port, so a stopped and restarted broker comes back at the same address.
     public RabbitMqContainer Rabbit { get; } = new RabbitMqBuilder("rabbitmq:4").WithPortBinding(FreePort(), 5672).Build();
@@ -40,6 +44,24 @@ public sealed class Infra : IAsyncLifetime
     public string SeaweedS3 => $"http://{Seaweed.Hostname}:{Seaweed.GetMappedPublicPort(8333)}";
     public string SeaweedFiler => $"http://{Seaweed.Hostname}:{Seaweed.GetMappedPublicPort(8888)}";
     public string MailpitApi => $"http://{Mailpit.Hostname}:{Mailpit.GetMappedPublicPort(8025)}";
+
+    public async Task ClearMails()
+    {
+        using var http = new HttpClient();
+        await http.DeleteAsync($"{MailpitApi}/api/v1/messages");
+    }
+
+    // Polls Mailpit until at least `expected` mails arrived, or 20 s passed.
+    public async Task<List<JsonElement>> Mails(int expected)
+    {
+        using var http = new HttpClient();
+        for (var until = DateTime.UtcNow.AddSeconds(20); ; await Task.Delay(200))
+        {
+            var mails = (await http.GetFromJsonAsync<JsonElement>($"{MailpitApi}/api/v1/messages")).GetProperty("messages").EnumerateArray().ToList();
+            if (mails.Count >= expected || DateTime.UtcNow > until)
+                return mails;
+        }
+    }
 
     // Created up front: hosts other than MainApi (Notification) expect an existing database.
     public string NewDatabase()

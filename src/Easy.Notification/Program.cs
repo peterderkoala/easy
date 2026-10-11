@@ -5,9 +5,14 @@ using Easy.Platform;
 using Rebus.Config;
 
 var builder = WebApplication.CreateBuilder(args).AddEasyPlatform()
-    .AddEasyMessaging("notification", bus => bus.Subscribe<DocumentUploaded>());
+    .AddEasyMessaging("notification", async bus =>
+    {
+        await bus.Subscribe<DocumentUploaded>();
+        await bus.Subscribe<DeadlineApproaching>();
+    });
 builder.Services.AddEasyData();
 builder.Services.AddRebusHandler<DocumentUploadedHandler>();
+builder.Services.AddRebusHandler<DeadlineApproachingHandler>();
 var app = builder.Build().UseEasyPlatform();
 
 app.Run();
