@@ -85,6 +85,9 @@ public sealed class DataKey(byte[] key, byte[] wrapped, int version) : IDisposab
     public byte[] Encrypt(string value) => Aead.Seal(key, Encoding.UTF8.GetBytes(value));
     public string Decrypt(byte[] value) => Encoding.UTF8.GetString(Aead.Open(key, value));
     public byte[] EncryptBytes(byte[] value) => Aead.Seal(key, value);
+
+    // The same key as SSE-C key for the participant's objects in SeaweedFS (ADR 0002). Sent per request, never stored there.
+    public string SseCustomerKey => Convert.ToBase64String(key);
     public byte[] DecryptBytes(byte[] value) => Aead.Open(key, value);
 
     public void Dispose() => CryptographicOperations.ZeroMemory(key);

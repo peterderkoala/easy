@@ -228,7 +228,7 @@ public class AuthTests(KeycloakFixture keycloak, Infra infra) : IClassFixture<Ke
     {
         "main-api" => Client(infra.Configure(new WebApplicationFactory<mainapi::Program>()), services),
         "exam-room" => Client(new WebApplicationFactory<examroom::Program>(), services),
-        "notification" => Client(new WebApplicationFactory<notification::Program>(), services),
+        "notification" => Client(infra.Configure(new WebApplicationFactory<notification::Program>()), services), // Rebus endpoint since spec 7
         "scheduler" => Client(new WebApplicationFactory<scheduler::Program>(), services),
         _ => throw new ArgumentOutOfRangeException(nameof(service)),
     };

@@ -18,7 +18,7 @@ For the planning agent. Each item needs a decision or check before the affected 
 - **RESOLVED (S11): Audit log may hold personal data** [S11]. Encrypted fields are audited under the participant key; `participant_id` and points stay after "forget". Original problem: Old/new values of graded fields may contain personal data. Unclear whether audit rows are encrypted or purged on "forget".
 - **Unlimited retention conflicts with GDPR storage limitation** [S11]. Even with "forget", indefinite retention of personal records needs a legal check.
 - **RESOLVED (ADR 0001, S02): Documents survive "forget" as ciphertext** [S06, S02]. Forget now also deletes the SeaweedFS objects. Original problem: SeaweedFS objects remain stored. Deletion of the object, not only key loss, should be considered.
-- **SSE-C enforcement unverified** [S06]. Relies on a current SeaweedFS version and a read-test that is not yet done.
+- **RESOLVED (ADR 0002, S06): SSE-C enforcement unverified** [S06]. SeaweedFS 4.48 is pinned; the spike tests show a read with a wrong or missing key fails and the stored bytes are ciphertext. Original problem: Relies on a current SeaweedFS version and a read-test that is not yet done.
 - **Blinding is application-level only** [S06]. Safe only if the API never sends the partner's scores. This needs an explicit DTO rule and test in S09.
 - **Background consumers have no authorization model** [S09]. Notification runs without examiner context. Rules for which claims or service identity it uses are undefined.
 - **Interim and closed-area points editable by any examiner** [S07]. No second check or role split. The audit type "correction" records it but does not prevent it.
@@ -340,7 +340,7 @@ One status per participant, split into four areas:
 - Storage: S3-compatible object storage, decided on SeaweedFS (Apache-2.0, lightweight, Docker-friendly).
   - Objects encrypted with the participant-specific key (SSE-C). No separate key.
   - Deletion concept (S11): unreadable by key deletion.
-  - Use a current SeaweedFS version. Test SSE-C enforcement on read, as older versions had gaps.
+  - SeaweedFS 4.48 pinned; SSE-C enforcement on read is covered by a test, re-run on every upgrade (ADR 0002).
 - Successful upload automatically emits an event to the notification service. Registered examiners are notified (S12).
 - Process waits for this submission after approval.
 
@@ -659,7 +659,7 @@ Skeleton subset (decided): Cycle, Participant, Examiner (mirror of the Keycloak 
 
 - Dev: local Docker Compose. Prod: bitfabrik.it. Staging: open.
 - `[DECIDED]` Compose files in the repo root: `compose.dev.yml` is the dev topology (all nine containers plus Mailpit, ports published on `127.0.0.1` only). `compose.example.yml` is a deployment template: copy it to `compose.prod.yml` (gitignored) and fill in the `CHANGE-ME` values. It differs by an `internal` network without outside access, no debug ports, pinned images, restart policies and Keycloak in production mode. Start in dev: `cp .env.example .env`, create `secrets/master_secret`, then `docker compose -f compose.dev.yml up --build`.
-- `[DECIDED]` Secrets: `.env.example` is committed with placeholders, the real `.env` is gitignored. Service-account client secrets (notification, scheduler; S05), SMTP settings and the upload limit live in `.env`. The master secret (S02) is the gitignored file `secrets/master_secret`, mounted through Compose `secrets:` into main-api only. Secret storage beyond this: open.
+- `[DECIDED]` Secrets: `.env.example` is committed with placeholders, the real `.env` is gitignored. Service-account client secrets (notification, scheduler; S05), the SeaweedFS S3 admin identity (S06), SMTP settings (incl. sender and STARTTLS) and the upload limit live in `.env`. The master secret (S02) is the gitignored file `secrets/master_secret`, mounted through Compose `secrets:` into main-api only. Secret storage beyond this: open.
 - `[DECIDED]` Mail: Mailpit is the dev mail catcher (UI on `127.0.0.1`). SMTP host, port and credentials come only from environment variables (`Smtp__*`); production points them at Mailcow.
 - `[DECIDED]` Networks: only the gateway is publicly reachable, all others are on the internal network. Exception: Keycloak must also be reachable by the browser (login goes directly to it, S05), so it joins the public network behind the TLS reverse proxy. TLS termination point: open.
 - `[DECIDED]` Start-up order through healthchecks and `depends_on: service_healthy`: Postgres, RabbitMQ, SeaweedFS and Keycloak (realm import) first, then main-api (runs the migrations), then the other hosts and the gateway. One database with a `hangfire` schema, one connection string per host. Every app host exposes `/health` (answers `Healthy <host>`), which its Compose healthcheck calls; the gateway also routes `/health/main-api` and `/health/exam-room`.

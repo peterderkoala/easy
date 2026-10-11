@@ -14,3 +14,9 @@ public record GradeChanged(Guid ParticipantId, string Source, Guid ChangeId)
 {
     public string EventId => $"grade-changed:{ChangeId}";
 }
+
+// A documentation PDF was stored (S06); the notification service mails the examiners (S12).
+public record DocumentUploaded(Guid DocumentId, Guid ParticipantId)
+{
+    public string EventId => $"document-uploaded:{DocumentId}";
+}

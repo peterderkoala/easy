@@ -26,6 +26,8 @@ services:
     restart: unless-stopped
     networks: [public, internal]
     ports: ["8080:8080"] # behind the TLS reverse proxy
+    environment:
+      Upload__MaxBytes: ${UPLOAD_MAX_BYTES:-15728640} # same limit as main-api (S06)
     depends_on:
       main-api: {condition: service_healthy}
       exam-room: {condition: service_healthy}
@@ -41,6 +43,8 @@ services:
       Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
       Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
       Seaweed__Endpoint: http://seaweedfs:8333
+      Seaweed__AccessKey: ${SEAWEEDFS_ACCESS_KEY}
+      Seaweed__SecretKey: ${SEAWEEDFS_SECRET_KEY}
       Upload__MaxBytes: ${UPLOAD_MAX_BYTES:-15728640}
       MasterSecretFile: /run/secrets/master_secret
     depends_on:
@@ -75,6 +79,8 @@ services:
       Smtp__Port: ${SMTP_PORT:-1025}
       Smtp__User: ${SMTP_USER:-}
       Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__From: ${SMTP_FROM:-easy@localhost}
+      Smtp__EnableSsl: ${SMTP_ENABLE_SSL:-false}
     depends_on:
       main-api: {condition: service_healthy}
       mailpit: {condition: service_started}
@@ -119,10 +125,13 @@ services:
       retries: 10
 
   seaweedfs:
-    # Pin a release that contains PR 11578 (presigned + SSE-C fix); verify in the SSE-C spike.
+    # 4.48: SSE-C enforcement verified by SseCSpikeTests (ADR 0002). Signed S3 requests need the admin identity.
     restart: unless-stopped
-    image: chrislusf/seaweedfs:CHANGE-ME-pinned-release
+    image: chrislusf/seaweedfs:4.48
     command: server -s3 -dir=/data
+    environment:
+      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY}
     networks: [internal]
     volumes: [seaweedfs-data:/data]
     healthcheck:
@@ -152,7 +161,7 @@ services:
 
   mailpit:
     restart: unless-stopped
-    image: axllent/mailpit # drop mailpit in production; point Smtp__* at Mailcow
+    image: axllent/mailpit:v1.31.5 # drop mailpit in production; point Smtp__* at Mailcow
     networks: [internal]
 
 volumes:

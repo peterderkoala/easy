@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using Rebus.Bus;
 using Rebus.Config;
 using Rebus.Config.Outbox;
 using Rebus.Messages;
@@ -21,11 +22,14 @@ namespace Easy.Platform;
 // Rebus on RabbitMQ with the Rebus.PostgreSql transactional outbox (ADR 0003). Delivery is at-least-once.
 public static class Messaging
 {
+    // ponytail: one table for all hosts on the shared database, so any host's forwarder may send another's rows;
+    // harmless with idempotent consumers, per-host tables if forwarding order or load ever matters
     public const string OutboxTable = "rebus_outbox"; // created by Rebus on start
 
     // queue null = one-way client (publish only). Rebus:Queue overrides the queue name; tests give each host its own.
     // Never set it for more than one host in Compose, or they would share one input queue.
-    public static WebApplicationBuilder AddEasyMessaging(this WebApplicationBuilder builder, string? queue = null)
+    // onCreated runs once the bus is up, e.g. for subscriptions.
+    public static WebApplicationBuilder AddEasyMessaging(this WebApplicationBuilder builder, string? queue = null, Func<IBus, Task>? onCreated = null)
     {
         builder.Services.AddRebus((configure, services) =>
         {
@@ -42,7 +46,7 @@ public static class Messaging
                 .Options(o => o.Decorate<IPipeline>(c => new PipelineStepInjector(c.Get<IPipeline>())
                     .OnReceive(new IncomingCorrelation(), PipelineRelativePosition.Before, typeof(DefaultRetryStep))
                     .OnSend(new OutgoingCorrelation(), PipelineRelativePosition.Before, typeof(FlowCorrelationIdStep))));
-        });
+        }, onCreated: onCreated);
         return builder;
     }
 

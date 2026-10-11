@@ -13,5 +13,7 @@ MainApi receives the PDF, unwraps the participant's data key in memory and write
 ## Consequences
 
 - Only MainApi touches documents. Notification and ExamRoom never access SeaweedFS.
-- A SeaweedFS release containing the fix must be pinned; the SSE-C read test is part of the upload spec.
+- SeaweedFS 4.48 is pinned. No release contains PR 11578 yet, but it only matters for presigned requests, which proxy upload never sends. The spike (`SseCSpikeTests`, spec 7) shows 4.48 refuses a signed read with a wrong key or without SSE-C headers and stores ciphertext, so the AES-GCM fallback is not needed. Re-run the spike on every upgrade; presigned upload would need a release with the fix.
+- The SSE-C key is the participant data key itself (S06: no separate key). SeaweedFS sees it per request but never stores it.
+- 4.48 rejects signed S3 requests unless an identity is configured, so SeaweedFS runs with an admin identity (`SEAWEEDFS_ACCESS_KEY`/`SEAWEEDFS_SECRET_KEY`) and MainApi signs with it.
 - The 15 MB limit is enforced at the gateway, Kestrel and MainApi from one setting.

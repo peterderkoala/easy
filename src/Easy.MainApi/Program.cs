@@ -1,4 +1,5 @@
 using Easy.Data;
+using Easy.MainApi.Documents;
 using Easy.MainApi.Examiners;
 using Easy.MainApi.Grades;
 using Easy.MainApi.Imports;
@@ -9,6 +10,7 @@ using Rebus.Config;
 
 var builder = WebApplication.CreateBuilder(args).AddEasyPlatform().AddEasyMessaging("main-api"); // own queue: CSV import (S02)
 builder.Services.AddEasyData();
+builder.WebHost.ConfigureKestrel((context, kestrel) => kestrel.Limits.MaxRequestBodySize = Upload.MaxBytes(context.Configuration));
 // Read on first use, so only code that touches participant data needs the secret file (ADR 0001, MainApi only).
 builder.Services.AddSingleton<IMasterSecret>(sp =>
 {
@@ -18,6 +20,7 @@ builder.Services.AddSingleton<IMasterSecret>(sp =>
         config.GetValue("MasterSecretVersion", 1));
 });
 builder.Services.AddSingleton<ParticipantKeys>();
+builder.Services.AddSingleton<DocumentStore>().AddSingleton<IParticipantObjects>(sp => sp.GetRequiredService<DocumentStore>());
 builder.Services.Configure<ImportOptions>(builder.Configuration.GetSection("Import"));
 builder.Services.AddRebusHandler<ImportCycleHandler>();
 var app = builder.Build();
@@ -31,6 +34,7 @@ app.UseOutbox(); // write requests: EF transaction + Rebus outbox, committed tog
 app.MapMe();
 app.MapSetGrade();
 app.MapImports();
+app.MapUploadDocument();
 app.MapStaticAssets();
 app.MapFallbackToFile("index.html");
 
