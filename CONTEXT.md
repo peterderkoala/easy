@@ -22,6 +22,10 @@ _Avoid_: area, category, comment section
 The smallest gradable item of a section, with a maximum of integer points. An examiner gives it points and a remark.
 _Avoid_: sub-criterion, Beurteilungspunkt, item
 
+**Registration**:
+An examiner's place as one of the two examiners of a participant's documentation, taken by the examiner themselves.
+_Avoid_: assignment, Anmeldung
+
 **Examiner grading**:
 One examiner's points and remarks on every criterion for one participant's documentation. Blind by default; submitted when the examiner is done.
 _Avoid_: grade (that is the stored point value per source), evaluation, rating

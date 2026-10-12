@@ -10,7 +10,7 @@ For the planning agent. Each item needs a decision or check before the affected 
 
 - **Overall grade has no formula** [S04, S10]. Weighting of sources is open, and written-exam pass/fail logic is open. The main output of the system cannot be implemented or tested.
 - **Written-exam status undefined** [S04, S10]. Same root cause as above.
-- **"Began grading" undefined** [S05, S15]. Examiner change discards unfinished grading only before "begun", and that trigger is not defined.
+- **RESOLVED (S05, issue 35): "Began grading" undefined** [S05, S15]. Now: an examiner has begun when they submit their examiner grading. Original problem: Examiner change discards unfinished grading only before "begun", and that trigger is not defined.
 
 ### Security and privacy
 
@@ -305,6 +305,11 @@ One status per participant, split into four areas:
 - Examiner change during a running cycle only before grading has started.
   - `[DECIDED]` An unfinished grading by the previous examiner is discarded.
   - No grades are handed over. The new examiner starts from their own state.
+- `[DECIDED]` Registration and "began grading" (issue 35):
+  - Any active examiner (admins included) registers for any participant from the import on, first come first served, at most two per participant. Registrations (names only) are visible to all examiners.
+  - "Began grading" = the examiner submitted their examiner grading. Before that, an examiner may unregister; deactivation releases the registration the same way. The draft is discarded and the place reopens for free registration. After submit the grading stays and counts, also after deactivation.
+  - The third examiner (S06) is not a registration and does not count toward the two: an invitation (invited, accepted, declined) to an examiner other than the registered pair. They may step back before submit, discarding their draft.
+  - No admin assignment of free places in this slice; the admin overview of open to-dos comes later.
 
 ### User management (lightweight)
 
@@ -623,6 +628,7 @@ Skeleton subset (decided): Cycle, Participant, Examiner (mirror of the Keycloak 
   - Set by two examiner decisions. Rule for conflicting decisions: open.
 - **Documentation**: submitted (upload) → in progress → graded. Graded is locked.
   - Reassignment allowed only before "in progress". Trigger for "begun" (first point entry?): open.
+  - `[CLARIFICATION]` Per examiner, not per documentation: an examiner can be changed until they submit their examiner grading (S05, issue 35).
 - **Written exam**: attended / failed / passed derived from three point grades. Formula open (S10).
 - **Oral session**: open → closed. Closed is final. No reopen (S07) One session per participant (S14).
 
