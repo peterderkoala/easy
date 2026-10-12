@@ -5,6 +5,7 @@ using Easy.MainApi.Grades;
 using Easy.MainApi.Imports;
 using Easy.MainApi.OralSessions;
 using Easy.MainApi.Participants;
+using Easy.MainApi.Settings;
 using Easy.Platform;
 using Microsoft.EntityFrameworkCore;
 using Rebus.Config;
@@ -37,6 +38,7 @@ app.MapSetGrade();
 app.MapImports();
 app.MapUploadDocument();
 app.MapCreateOralSession();
+app.MapSettings();
 app.MapStaticAssets();
 app.MapFallbackToFile("index.html");
 

@@ -2,6 +2,7 @@ using System.Globalization;
 using Easy.Contracts;
 using Easy.Data;
 using Easy.MainApi.Participants;
+using Easy.MainApi.Settings;
 using Easy.Platform;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -53,7 +54,10 @@ public class ImportCycleHandler(EasyDb db, ParticipantKeys keys, IOptions<Import
             return;
         }
 
-        var cycle = db.Cycles.Add(new() { Id = Guid.NewGuid(), Type = job.CycleType, Year = job.Year }).Entity;
+        var cycle = db.Cycles.Add(new()
+        {
+            Id = Guid.NewGuid(), Type = job.CycleType, Year = job.Year, Weights = await SettingsEndpoints.DefaultWeights(db), // S06
+        }).Entity;
         string prefix = Cycle.Label(job.CycleType, job.Year);
         for (int i = 0; i < result.Rows.Count; i++)
         {

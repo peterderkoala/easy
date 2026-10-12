@@ -17,13 +17,18 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<ProcessedEvent> ProcessedEvents => Set<ProcessedEvent>();
     public DbSet<ImportJob> ImportJobs => Set<ImportJob>();
+    public DbSet<ConfigEntry> ConfigEntries => Set<ConfigEntry>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder) =>
         builder.Properties<Enum>().HaveConversion<string>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
-        model.Entity<Cycle>().HasIndex(c => new { c.Type, c.Year }).IsUnique(); // S02
+        model.Entity<Cycle>(e =>
+        {
+            e.HasIndex(c => new { c.Type, c.Year }).IsUnique(); // S02
+            e.Ignore(c => c.Weights);
+        });
         model.Entity<Participant>(e =>
         {
             e.HasOne<Cycle>().WithMany().HasForeignKey(p => p.CycleId);
@@ -50,6 +55,7 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
             e.HasOne<Cycle>().WithMany().HasForeignKey(j => j.CycleId);
             e.OwnsMany(j => j.Errors, b => b.ToJson());
         });
+        model.Entity<ConfigEntry>().HasKey(c => c.Key);
         model.Entity<ProcessedEvent>().Property(p => p.ProcessedAt).HasDefaultValueSql("now()");
     }
 }

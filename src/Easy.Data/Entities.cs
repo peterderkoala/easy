@@ -16,6 +16,20 @@ public class Cycle
     public DateOnly? DocumentationDueDate { get; set; }
     public DateOnly? DocumentationDeadline { get; set; }
 
+    // Documentation section weights in percent, matrix order, adding up to 100 (S06). Copied from
+    // ConfigEntry.DefaultWeights when the import creates the cycle.
+    public int Weight1 { get; set; }
+    public int Weight2 { get; set; }
+    public int Weight3 { get; set; }
+    public int Weight4 { get; set; }
+    public int Weight5 { get; set; }
+
+    public int[] Weights
+    {
+        get => [Weight1, Weight2, Weight3, Weight4, Weight5];
+        set => (Weight1, Weight2, Weight3, Weight4, Weight5) = (value[0], value[1], value[2], value[3], value[4]);
+    }
+
     // WS2026 / SS2026: prefix of display numbers and the cycle's name in mails.
     public static string Label(CycleType type, int year) => $"{(type == CycleType.Winter ? "WS" : "SS")}{year}";
 }
@@ -122,6 +136,17 @@ public class ImportJob
 
 // Row 1 is the header; row 0 means the whole file.
 public record ImportError(int Row, string Column, string Message);
+
+// S06 (issue 39): system-wide settings only. Values are text, parsed in code; defaults are seeded by migration.
+public class ConfigEntry
+{
+    public const string DeviationSectionPoints = "grading.deviation.section-points";
+    public const string DeviationTotalPoints = "grading.deviation.total-points";
+    public const string DefaultWeights = "grading.default-weights"; // 15/10/40/25/10
+
+    public required string Key { get; set; }
+    [Audited] public required string Value { get; set; }
+}
 
 // Idempotent consumers: one row per handled event ID.
 public class ProcessedEvent

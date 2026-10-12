@@ -53,6 +53,21 @@ public class ImportTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifetime
         Assert.Equal(keys.BlindIndex(cycle.Id, "4712"), participants[1].CsvIdHash);
     }
 
+    // Spec 10 (issue 42): the default at import time, so a later default change leaves the cycle alone.
+    [Fact]
+    public async Task Imported_cycle_copies_default_weights()
+    {
+        var settings = new { deviationSectionPoints = 4, deviationTotalPoints = 10, defaultWeights = new[] { 15, 10, 40, 20, 15 } };
+        var client = mainApi.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", admin);
+        (await client.PutAsJsonAsync("/api/settings", settings)).EnsureSuccessStatusCode();
+
+        await Import(ValidCsv);
+
+        var weights = await Db(async db => (await db.Cycles.SingleAsync()).Weights);
+        Assert.Equal([15, 10, 40, 20, 15], weights);
+    }
+
     [Fact]
     public async Task Invalid_csv_imports_nothing_and_lists_row_errors()
     {

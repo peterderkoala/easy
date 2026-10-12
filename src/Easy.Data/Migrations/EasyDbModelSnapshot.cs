@@ -78,6 +78,23 @@ namespace Easy.Data.Migrations
                     b.ToTable("audit_entries", (string)null);
                 });
 
+            modelBuilder.Entity("Easy.Data.ConfigEntry", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasColumnType("text")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("value");
+
+                    b.HasKey("Key")
+                        .HasName("pk_config_entries");
+
+                    b.ToTable("config_entries", (string)null);
+                });
+
             modelBuilder.Entity("Easy.Data.Cycle", b =>
                 {
                     b.Property<Guid>("Id")
@@ -97,6 +114,26 @@ namespace Easy.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("type");
+
+                    b.Property<int>("Weight1")
+                        .HasColumnType("integer")
+                        .HasColumnName("weight1");
+
+                    b.Property<int>("Weight2")
+                        .HasColumnType("integer")
+                        .HasColumnName("weight2");
+
+                    b.Property<int>("Weight3")
+                        .HasColumnType("integer")
+                        .HasColumnName("weight3");
+
+                    b.Property<int>("Weight4")
+                        .HasColumnType("integer")
+                        .HasColumnName("weight4");
+
+                    b.Property<int>("Weight5")
+                        .HasColumnType("integer")
+                        .HasColumnName("weight5");
 
                     b.Property<int>("Year")
                         .HasColumnType("integer")
