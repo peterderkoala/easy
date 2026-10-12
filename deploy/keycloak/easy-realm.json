@@ -92,6 +92,7 @@
   ],
   "users": [
     {
+      "id": "00000000-0000-0000-0000-00000000ad01",
       "username": "admin",
       "enabled": true,
       "email": "admin@easy.local",
@@ -102,6 +103,7 @@
       "realmRoles": ["admin"]
     },
     {
+      "id": "00000000-0000-0000-0000-00000000e001",
       "username": "examiner",
       "enabled": true,
       "email": "examiner@easy.local",
