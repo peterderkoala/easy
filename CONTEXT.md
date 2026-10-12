@@ -38,6 +38,10 @@ _Avoid_: documentation grade, final points
 An examiner invited by name when the two registered examiners' totals differ beyond the threshold; their examiner grading joins the average.
 _Avoid_: arbiter, Drittprüfer, referee
 
+**Deviation**:
+The state of a documentation whose two registered examiner gradings differ by more than 4 points in a section or more than 10 in total. Shown as a notice naming the sections, never the gaps; resolved by revision or a third examiner.
+_Avoid_: Abweichung, conflict, disagreement
+
 **Summary view**:
 The view in which a registered or third examiner, on their own decision, sees the other examiner gradings of a documentation before it is graded. It lifts blinding only for the one who opened it.
 _Avoid_: comparison, overview, unblinding

@@ -399,6 +399,12 @@ One status per participant, split into four areas:
   - The third examiner starts blind and may open the summary view. Their submit sets graded; documentation score = `ROUND((T1 + T2 + T3) / 3, 1)`, no further deviation check.
   - Rounding half away from zero (as Excel `ROUND`): 47.5 and 45.0 give 46.3.
   - The documentation score is stored in `Grade` (source documentation) when graded, so later weight changes do not alter it. The German grade 1 to 6 is derived for display only (scale in `docs/samples/bewertungsmatrix/`).
+- `[DECIDED]` Deviation rule, notice and configuration table (issue 39). `[CLARIFICATION]` "Gap above the threshold" above means this rule fires:
+  - Checked on "both submitted" between the two registered examiner gradings. Deviation if any section's points (0 to 10) differ by more than 4 (so 5 or more), or the totals (out of 100) differ by more than 10. Exactly 4 or exactly 10 is no deviation.
+  - Stored at the check: status deviation, with the deviating sections (and "total") and the thresholds used. A later threshold edit only affects future checks.
+  - Resolving: until a third examiner is invited, either examiner may withdraw their submit, change points and submit again; withdrawing clears the deviation and the next "both submitted" reruns the check. Inviting a third examiner freezes both gradings.
+  - Notice (live event, S09): registered examiners and the third examiner see the names of the deviating sections and/or "total", never gaps or direction (with one's own points that would reveal the other's); the numbers come only through the summary view. Admins not grading see the gaps. Other examiners see the status deviation only.
+  - Configuration table `ConfigEntry(key text PK, value text)` holds system-wide settings only: `grading.deviation.section-points` (4), `grading.deviation.total-points` (10), `grading.default-weights` (15/10/40/25/10). Keys are code constants, values parsed in code, defaults seeded by migration, edited by admins in the settings form, `[Audited]` (S11). Per-cycle weights are columns on `Cycle`, copied from the default when the cycle is created.
 - Status: submitted, in progress, graded. "Graded" locks the grading.
 - Not a real session like the Virtual Room. Locking depends only on status "graded".
 
@@ -614,7 +620,7 @@ Proposed entities, derived from S02–S12. Not a final schema.
 
 | Entity | Key fields | Relations / notes |
 |---|---|---|
-| Cycle | id, type (winter/summer), year, per-module due date and deadline | 1–n Participant. Skeleton: two nullable columns for the documentation module only (due date, deadline) |
+| Cycle | id, type (winter/summer), year, per-module due date and deadline | 1–n Participant. Skeleton: two nullable columns for the documentation module only (due date, deadline). Five section weights, copied from the default on create (S06, issue 39) |
 | Participant | id (GUID), cycle_id, display_no (e.g. `WS2026-014`), csv_id (encrypted), csv_id_hash (blind index, null after forget), name (encrypted), project_title (encrypted), application_status, written_status, documentation_status, oral_status (four nullable enums, S04), key_forgotten flag | n–m Tag; 1–n Registration; 1–n Grade; 1–n Document; 1–n Comment |
 | Examiner | id, external subject (Keycloak), role (admin/examiner), active flag, display name and email (from token claims at first login; examiner data, not encrypted) | 1–n Signature (optional) |
 | Registration | participant_id, examiner_id | Documentation pair (2 examiners) |
@@ -627,7 +633,7 @@ Proposed entities, derived from S02–S12. Not a final schema.
 | Tag | id, name | Filter now, assignment later (S03, S05) |
 | Document | participant_id, kind (application PDF / project PDF / grading document), storage key, hash, frozen flag | Stored in SeaweedFS (S06) |
 | Signature | examiner_id, drawn image | Stored once in profile (S06) |
-| ConfigEntry | key, value | Holds grading-deviation threshold (S06) |
+| ConfigEntry | key (PK), value (text) | System-wide settings only: deviation thresholds, default weights (S06, issue 39). Audited |
 | AuditEntry | id, correlation_id, actor_id, entity, field, old, new, type (initial/correction), timestamp | Admin-only read (S11) |
 
 Derived, not stored: overall grade (S04, S09).
