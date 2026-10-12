@@ -1,0 +1,363 @@
+<!doctype html>
+<!-- PROTOTYPE, throwaway (wayfinder "Prototype: split-view grading screen", issue 41).
+     Three variants of the documentation grading screen, switchable via ?variant=A|B|C and the bottom bar.
+     State is in memory only. PDF pane = native browser viewer in an iframe; "S." jumps use #page=N.
+     Open by double-click (file://) or via the client host at /prototype/grading-split-view.html. -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYP Dokumentation bewerten</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; color: #1d232b; background: #f3f4f6; height: 100vh; display: flex; flex-direction: column; }
+  header.app { background: #1f3a5f; color: #fff; padding: 8px 14px; display: flex; gap: 16px; align-items: center; }
+  header.app b { font-size: 15px; }
+  header.app .who { margin-left: auto; opacity: .85; }
+  main { flex: 1; min-height: 0; display: flex; }
+  .pdf { flex: 1 1 50%; display: flex; flex-direction: column; border-right: 1px solid #cfd4da; background: #525659; }
+  .pdf .bar { background: #e9ecef; padding: 4px 8px; display: flex; gap: 8px; align-items: center; font-size: 12px; }
+  .pdf iframe { flex: 1; border: 0; width: 100%; background: #525659; }
+  .pane { flex: 1 1 50%; overflow: auto; background: #fff; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: #e9ecef; }
+  .pill.none { background: #e9ecef; } .pill.draft { background: #fff3bf; } .pill.submitted { background: #d3f9d8; }
+  .pill.dev { background: #ffe3e3; color: #a51111; } .pill.graded { background: #1f3a5f; color: #fff; }
+  .notice { margin: 8px 12px; padding: 8px 10px; border-left: 4px solid #e03131; background: #fff5f5; }
+  .notice.info { border-color: #1c7ed6; background: #e7f5ff; }
+  .notice.ok { border-color: #2f9e44; background: #ebfbee; }
+  button { font: inherit; padding: 4px 10px; border: 1px solid #adb5bd; background: #fff; border-radius: 4px; cursor: pointer; }
+  button.primary { background: #1f3a5f; color: #fff; border-color: #1f3a5f; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  textarea { width: 100%; font: inherit; min-height: 34px; resize: vertical; }
+  textarea.short { border-color: #e03131; }
+  input.pts { width: 46px; font: inherit; text-align: right; }
+  .muted { color: #6c757d; font-size: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .grow { flex: 1; }
+  .locked { color: #6c757d; }
+  .comment { border-bottom: 1px solid #eee; padding: 6px 0; }
+  .comment .meta { font-size: 12px; color: #6c757d; }
+  /* debug state panel (prototype only) */
+  details.state { position: fixed; right: 8px; bottom: 56px; max-width: 360px; max-height: 50vh; overflow: auto; background: #212529; color: #c3fae8; font: 11px/1.3 monospace; padding: 6px 8px; border-radius: 6px; z-index: 50; }
+  details.state summary { cursor: pointer; color: #fff; }
+  /* switcher */
+  .switcher { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); background: #ff6b00; color: #fff; border-radius: 22px; padding: 5px 8px; display: flex; gap: 8px; align-items: center; box-shadow: 0 4px 14px rgba(0,0,0,.35); z-index: 60; font-size: 13px; }
+  .switcher button { background: transparent; color: #fff; border: 0; font-size: 16px; padding: 0 6px; }
+  .switcher select { font: inherit; font-size: 12px; }
+
+  /* Variant A: accordion of sections */
+  .A .status { padding: 8px 12px; border-bottom: 1px solid #e9ecef; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; position: sticky; top: 0; background: #fff; z-index: 2; }
+  .A details.sec { border-bottom: 1px solid #e9ecef; }
+  .A details.sec > summary { padding: 8px 12px; cursor: pointer; display: flex; gap: 8px; align-items: center; background: #f8f9fa; }
+  .A .crit { padding: 8px 12px 8px 28px; border-top: 1px dashed #e9ecef; }
+  .A .foot { position: sticky; bottom: 0; background: #fff; border-top: 2px solid #1f3a5f; padding: 8px 12px; display: flex; gap: 10px; align-items: center; }
+  .A .drawer { border-top: 1px solid #dee2e6; padding: 8px 12px; background: #f8f9fa; }
+
+  /* Variant B: one section at a time, tabs + per-section comments */
+  .B { display: flex; flex-direction: column; height: 100%; }
+  .B .tabs { display: flex; border-bottom: 2px solid #1f3a5f; }
+  .B .tabs button { border: 0; border-radius: 0; flex: 1; padding: 8px 4px; background: #f1f3f5; font-size: 12px; }
+  .B .tabs button.on { background: #1f3a5f; color: #fff; }
+  .B .tabs .done { color: #2f9e44; }
+  .B .body { flex: 1; overflow: auto; padding: 12px; }
+  .B .card { border: 1px solid #dee2e6; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+  .B .card h4 { margin: 0 0 6px; }
+  .B .dots button { width: 30px; padding: 3px 0; margin-right: 2px; }
+  .B .dots button.on { background: #1f3a5f; color: #fff; }
+  .B .bottom { border-top: 1px solid #dee2e6; padding: 8px 12px; display: flex; gap: 8px; align-items: center; background: #f8f9fa; }
+
+  /* Variant C: IHK sheet, examiners as columns */
+  .C table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  .C th, .C td { border: 1px solid #dee2e6; padding: 4px 6px; vertical-align: top; }
+  .C thead th { background: #1f3a5f; color: #fff; position: sticky; top: 0; z-index: 1; }
+  .C tr.sec td { background: #e7f5ff; font-weight: 600; }
+  .C tr.sec.dev td { background: #ffe3e3; }
+  .C td.num { text-align: right; white-space: nowrap; }
+  .C td.blind { background: repeating-linear-gradient(45deg, #f1f3f5, #f1f3f5 6px, #e9ecef 6px, #e9ecef 12px); color: #868e96; text-align: center; }
+  .C .top { padding: 8px 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #dee2e6; }
+  .C .split { display: flex; gap: 0; }
+  .C .comments { padding: 8px 12px; border-top: 2px solid #dee2e6; }
+</style>
+</head>
+<body>
+<header class="app">
+  <b>Easy</b><span>Sommer 2026 · Prüfling 4711 · Projekt „Lagerverwaltung mit Barcode-Scan“</span>
+  <span class="who" id="who"></span>
+</header>
+<main>
+  <section class="pdf">
+    <div class="bar">
+      <span>Dokumentation (nativer PDF-Viewer)</span>
+      <label>andere PDF laden <input type="file" accept="application/pdf" id="pdfFile"></label>
+      <span class="grow"></span><span id="pdfPage" class="muted"></span>
+    </div>
+    <iframe id="pdf" title="Dokumentation"></iframe>
+  </section>
+  <section class="pane" id="pane"></section>
+</main>
+<details class="state"><summary>Zustand (Prototyp)</summary><pre id="dump"></pre></details>
+<div class="switcher" id="switcher"></div>
+
+<script>
+// ---- fixed matrix (fiae-2026), from docs/samples/bewertungsmatrix ----
+const MATRIX = [
+  { k: '1', name: 'Ausgangssituation', weight: 15, crit: [['1.1', 'Projektziel, Teilaufgaben, Kundenwünsche', 5], ['1.2', 'Projektumfeld, Projektschnittstellen', 5]] },
+  { k: '2', name: 'Ressourcen- und Ablaufplanung', weight: 10, crit: [['2.1', 'Ablaufplanung', 5], ['2.2', 'Personal-, Sachmittel-, Terminplanung, ggf. Kostenplanung', 5]] },
+  { k: '3', name: 'Durchführung und Auftragsbearbeitung', weight: 40, crit: [['3.1', 'Prozessschritte, Vorgehensweise, Qualitätssicherung', 4], ['3.2', 'Abweichung, Anpassung, Entscheidung', 3], ['3.3', 'Komplexität der Aufgabenstellung', 3]] },
+  { k: '4', name: 'Projektergebnisse', weight: 25, crit: [['4.1', 'Kommentierter Quellcode', 2], ['4.2', 'Soll-Ist-Vergleich', 2], ['4.3', 'Qualitätskontrolle', 2], ['4.4', 'Abweichungen, Anpassungen', 2], ['4.5', 'Benutzerdokumentation', 2]] },
+  { k: '5', name: 'Gestaltung der Dokumentation', weight: 10, crit: [['5.1', 'Äußere Form', 5], ['5.2', 'Inhaltliche Form', 5]] },
+].map(s => ({ ...s, crit: s.crit.map(([k, name, max]) => ({ k, name, max })) }));
+const CRITS = MATRIX.flatMap(s => s.crit);
+const MIN_REMARK = 10, DEV_SECTION = 4, DEV_TOTAL = 10;
+
+const pts = (arr) => Object.fromEntries(CRITS.map((c, i) => [c.k, arr[i]]));
+const rem = (txt) => Object.fromEntries(CRITS.map(c => [c.k, txt]));
+// Teilnehmer X from the sample sheet, plus a partner set that deviates in section 3
+const SAMPLE_A = pts([3, 3, 1, 2, 2, 1, 1, 1, 1, 1, 2, 0, 5, 2]);
+const SAMPLE_B = pts([3, 2, 1, 2, 2, 1, 1, 1, 1, 1, 2, 0, 3, 3]);
+const SAMPLE_B_DEV = pts([3, 2, 1, 2, 4, 3, 3, 1, 1, 1, 2, 0, 3, 3]);
+
+// ---- in-memory state ----
+let S;
+const SCENARIOS = {
+  'leer':        'Ich: noch nichts erfasst',
+  'entwurf':     'Ich: Entwurf, Partner: Entwurf',
+  'ich-fertig':  'Ich: eingereicht, Partner: Entwurf',
+  'abweichung':  'Beide eingereicht → Abweichung (Abschnitt 3)',
+  'dritter':     'Abweichung → Drittprüfer eingeladen',
+  'bewertet':    'Bewertet (gesperrt)',
+  'admin':       'Admin, nicht prüfend (sieht alles)',
+};
+function scenario(name) {
+  S = {
+    scenario: name, role: 'registered', me: 'Prüfer A (Sie)', partner: 'Prüfer B', third: null,
+    mine: { points: {}, remarks: {}, status: 'none' },
+    other: { points: {}, remarks: {}, status: 'none' },
+    summaryOpen: false, summaryOpenedBy: null, deviation: null, graded: null,
+    comments: [{ by: 'Prüfer C (nicht registriert)', section: '4', text: 'Quellcode im Anhang fehlt bei mir, nur Auszüge auf S. 14.', at: '10:02' }],
+    pages: { '1': 3, '2': 5, '3': 8, '4': 14, '5': 1 }, tab: '1', commentsOpen: false,
+  };
+  const fill = (g, p, status, r) => { g.points = { ...p }; g.remarks = rem(r); g.status = status; };
+  if (name === 'entwurf') {
+    fill(S.mine, SAMPLE_A, 'draft', 'Ziel erkennbar; messbare Kriterien fehlen.');
+    delete S.mine.points['4.5']; S.mine.remarks['4.5'] = 'fehlt?';
+    fill(S.other, SAMPLE_B, 'draft', 'Begründung fehlt teilweise.');
+  }
+  if (name === 'ich-fertig') { fill(S.mine, SAMPLE_A, 'submitted', 'Ziel erkennbar; messbare Kriterien fehlen.'); fill(S.other, SAMPLE_B, 'draft', 'Begründung fehlt teilweise.'); }
+  if (['abweichung', 'dritter'].includes(name)) {
+    fill(S.mine, SAMPLE_A, 'submitted', 'Ziel erkennbar; messbare Kriterien fehlen.');
+    fill(S.other, SAMPLE_B_DEV, 'submitted', 'Durchführung gut begründet, Alternativen genannt.');
+    S.deviation = check();
+  }
+  if (name === 'dritter') { S.third = { name: 'Prüferin D', status: 'invited' }; }
+  if (name === 'bewertet') {
+    fill(S.mine, SAMPLE_A, 'submitted', 'Ziel erkennbar; messbare Kriterien fehlen.');
+    fill(S.other, SAMPLE_B, 'submitted', 'Begründung fehlt teilweise.');
+    S.graded = grade();
+  }
+  if (name === 'admin') {
+    S.role = 'admin'; S.me = 'Admin Z';
+    fill(S.mine, SAMPLE_A, 'submitted', 'Ziel erkennbar; messbare Kriterien fehlen.'); // = Prüfer A
+    fill(S.other, SAMPLE_B_DEV, 'draft', 'Durchführung gut begründet.');
+  }
+}
+
+// ---- rules ----
+const secPts = (g, s) => s.crit.reduce((a, c) => a + (g.points[c.k] ?? 0), 0);
+const total = (g) => MATRIX.reduce((a, s) => a + secPts(g, s) * s.weight / 10, 0);
+const round1 = (x) => Math.sign(x) * Math.round(Math.abs(x) * 10 + 1e-9) / 10;
+const note = (t) => t >= 92 ? 1 : t >= 81 ? 2 : t >= 67 ? 3 : t >= 50 ? 4 : t >= 30 ? 5 : 6;
+const complete = (g) => CRITS.every(c => Number.isInteger(g.points[c.k]) && (g.remarks[c.k] ?? '').trim().length >= MIN_REMARK);
+function check() {
+  const secs = MATRIX.filter(s => Math.abs(secPts(S.mine, s) - secPts(S.other, s)) > DEV_SECTION).map(s => s.name);
+  if (Math.abs(total(S.mine) - total(S.other)) > DEV_TOTAL) secs.push('Gesamt');
+  return secs.length ? secs : null;
+}
+function grade() { const t = round1((total(S.mine) + total(S.other)) / 2); return { score: t, note: note(t) }; }
+const frozen = () => !!S.third || !!S.graded;
+const canEdit = () => S.role === 'registered' && S.mine.status !== 'submitted' && !frozen();
+const seesOther = () => S.role === 'admin' || S.summaryOpen || !!S.graded;
+function submit() {
+  if (!complete(S.mine)) return;
+  S.mine.status = 'submitted';
+  if (S.other.status === 'submitted') { S.deviation = check(); if (!S.deviation) S.graded = grade(); }
+  render();
+}
+function withdraw() { S.mine.status = 'draft'; S.deviation = null; render(); }
+function invite() { S.third = { name: prompt('Drittprüfer:in (Name)', 'Prüferin D') || 'Prüferin D', status: 'invited' }; render(); }
+function openSummary() { S.summaryOpen = true; render(); }
+function addComment(section, text) { if (text.trim()) S.comments.push({ by: S.me, section: section || null, text, at: new Date().toTimeString().slice(0, 5) }); render(); }
+
+// ---- PDF pane ----
+const pdf = document.getElementById('pdf');
+let pdfUrl = '../../../../docs/samples/bewertungsmatrix/Bewertungsmatrix_Projektarbeit.pdf';
+function jump(page) { pdf.src = pdfUrl + '#page=' + page; document.getElementById('pdfPage').textContent = 'zuletzt gesprungen: S. ' + page; }
+document.getElementById('pdfFile').onchange = (e) => { const f = e.target.files[0]; if (f) { pdfUrl = URL.createObjectURL(f); pdf.src = pdfUrl; } };
+pdf.src = pdfUrl;
+
+// ---- shared bits ----
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const STATUS = { none: 'keine', draft: 'Entwurf', submitted: 'eingereicht', invited: 'eingeladen' };
+const pill = (st) => `<span class="pill ${st}">${STATUS[st] ?? st}</span>`;
+function statusLine() {
+  return `<span>${esc(S.role === 'admin' ? 'Prüfer A' : 'Sie')}: ${pill(S.mine.status)}</span>
+    <span>${esc(S.partner)}: ${pill(S.other.status)}</span>
+    ${S.third ? `<span>${esc(S.third.name)} (Dritt): ${pill(S.third.status)}</span>` : ''}
+    ${S.graded ? `<span class="pill graded">bewertet · ${S.graded.score} → Note ${S.graded.note}</span>` : S.deviation ? '<span class="pill dev">Abweichung</span>' : ''}`;
+}
+function notices() {
+  let h = '';
+  if (S.deviation && !S.graded) {
+    const what = S.deviation.join(', ');
+    h += S.role === 'admin'
+      ? `<div class="notice"><b>Abweichung:</b> ${MATRIX.map(s => `${s.name} Δ${Math.abs(secPts(S.mine, s) - secPts(S.other, s))}`).join(' · ')} · Gesamt Δ${Math.abs(total(S.mine) - total(S.other)).toFixed(1)}</div>`
+      : `<div class="notice"><b>Abweichung</b> in: ${esc(what)}. Zahlen nur in der Übersicht. ${S.third ? 'Bewertungen eingefroren, Drittprüfer:in eingeladen.' : `Zurückziehen und überarbeiten oder <button data-act="invite">Drittprüfer:in einladen</button>`}</div>`;
+  }
+  if (S.summaryOpenedBy) h += `<div class="notice info">${esc(S.summaryOpenedBy)} hat die Übersicht geöffnet.</div>`;
+  if (S.graded) h += `<div class="notice ok">Bewertet. Dokumentationsergebnis ${S.graded.score} (Note ${S.graded.note}). Bewertung gesperrt.</div>`;
+  return h;
+}
+function commentList(filter) {
+  const list = S.comments.filter(c => !filter || c.section === filter);
+  return list.map(c => `<div class="comment"><div class="meta">${esc(c.by)} · ${c.at}${c.section ? ` · Abschnitt ${c.section}` : ''}</div>${esc(c.text)}</div>`).join('') || '<p class="muted">Noch keine Kommentare.</p>';
+}
+function commentForm(section) {
+  return `<div class="row"><textarea class="grow" id="newComment" placeholder="Kommentar (zählt nicht zur Note)"></textarea>
+    <button data-act="comment" data-sec="${section ?? ''}">Senden</button></div>`;
+}
+function actions() {
+  if (S.role === 'admin') return '<span class="muted">Nur lesen (Admin, nicht prüfend)</span>';
+  const done = CRITS.filter(c => Number.isInteger(S.mine.points[c.k]) && (S.mine.remarks[c.k] ?? '').trim().length >= MIN_REMARK).length;
+  return `<span class="muted">${done}/${CRITS.length} vollständig</span>
+    ${S.mine.status !== 'submitted' ? `<button class="primary" data-act="submit" ${complete(S.mine) && !frozen() ? '' : 'disabled'}>Einreichen</button>` : ''}
+    ${S.mine.status === 'submitted' && !frozen() ? '<button data-act="withdraw">Zurückziehen</button>' : ''}
+    ${!S.summaryOpen && !S.graded ? '<button data-act="summary">Übersicht öffnen (beide Bewertungen)</button>' : ''}`;
+}
+function ptsInput(c) {
+  const v = S.mine.points[c.k];
+  return canEdit() ? `<input class="pts" type="number" min="0" max="${c.max}" step="1" data-pts="${c.k}" value="${v ?? ''}">` : `<b>${v ?? '–'}</b>`;
+}
+function remarkInput(c) {
+  const v = S.mine.remarks[c.k] ?? '';
+  return canEdit() ? `<textarea data-rem="${c.k}" class="${v && v.trim().length < MIN_REMARK ? 'short' : ''}" placeholder="Bemerkung (mind. ${MIN_REMARK} Zeichen)">${esc(v)}</textarea>` : `<span class="locked">${esc(v) || '–'}</span>`;
+}
+const pageLink = (s) => `<button data-jump="${S.pages[s.k]}" title="Seite im PDF (vom Prüfer gesetzt)">→ S. ${S.pages[s.k]}</button>`;
+
+// ---- Variant A: accordion, everything on one scrolling pane, comments drawer ----
+function VariantA() {
+  return `<div class="A">
+    <div class="status">${statusLine()}</div>
+    ${notices()}
+    ${MATRIX.map(s => `<details class="sec" open>
+      <summary><b class="grow">${s.k}. ${esc(s.name)}</b><span class="muted">${s.weight} %</span>
+        ${pageLink(s)}<span>${secPts(S.mine, s)}/10</span>${seesOther() ? `<span class="muted">· ${esc(S.partner)}: ${secPts(S.other, s)}/10</span>` : ''}</summary>
+      ${s.crit.map(c => `<div class="crit">
+        <div class="row"><span class="grow">${c.k} ${esc(c.name)}</span>${ptsInput(c)}<span class="muted">/ ${c.max}</span></div>
+        ${remarkInput(c)}
+        ${seesOther() ? `<div class="muted">${esc(S.partner)}: <b>${S.other.points[c.k] ?? '–'}</b> · ${esc(S.other.remarks[c.k] ?? '')}</div>` : ''}
+      </div>`).join('')}
+    </details>`).join('')}
+    <div class="drawer">
+      <div class="row"><b class="grow">Kommentare (${S.comments.length})</b><button data-act="toggleComments">${S.commentsOpen ? 'zuklappen' : 'aufklappen'}</button></div>
+      ${S.commentsOpen ? commentList() + commentForm() : ''}
+    </div>
+    <div class="foot"><b>Gesamt ${total(S.mine).toFixed(1)} / 100</b>${seesOther() ? `<span class="muted">${esc(S.partner)}: ${total(S.other).toFixed(1)}</span>` : ''}<span class="grow"></span>${actions()}</div>
+  </div>`;
+}
+
+// ---- Variant B: one section at a time, tabs drive the PDF page, comments per section ----
+function VariantB() {
+  const s = MATRIX.find(x => x.k === S.tab);
+  const secDone = (x) => x.crit.every(c => Number.isInteger(S.mine.points[c.k]) && (S.mine.remarks[c.k] ?? '').trim().length >= MIN_REMARK);
+  const dots = (c) => canEdit()
+    ? `<div class="dots">${Array.from({ length: c.max + 1 }, (_, i) => `<button data-dot="${c.k}:${i}" class="${S.mine.points[c.k] === i ? 'on' : ''}">${i}</button>`).join('')}</div>`
+    : `<b>${S.mine.points[c.k] ?? '–'} / ${c.max}</b>`;
+  return `<div class="B">
+    <div class="tabs">${MATRIX.map(x => `<button data-tab="${x.k}" class="${x.k === S.tab ? 'on' : ''}">${x.k}. ${esc(x.name.split(' ')[0])} <span class="${secDone(x) ? 'done' : ''}">${secDone(x) ? '✓' : ''}</span><br>${secPts(S.mine, x)}/10</button>`).join('')}</div>
+    ${notices()}
+    <div class="body">
+      <div class="row"><h3 class="grow" style="margin:4px 0">${s.k}. ${esc(s.name)} <span class="muted">(${s.weight} %)</span></h3>
+        <label class="muted">Seite <input class="pts" type="number" min="1" data-page="${s.k}" value="${S.pages[s.k]}"></label>${pageLink(s)}</div>
+      ${s.crit.map(c => `<div class="card"><h4>${c.k} ${esc(c.name)}</h4>${dots(c)}<div style="margin-top:6px">${remarkInput(c)}</div>
+        ${seesOther() ? `<div class="muted" style="margin-top:4px">${esc(S.partner)}: <b>${S.other.points[c.k] ?? '–'}</b> · ${esc(S.other.remarks[c.k] ?? '')}</div>` : ''}</div>`).join('')}
+      <h4>Kommentare zu Abschnitt ${s.k}</h4>${commentList(s.k)}${commentForm(s.k)}
+      <p class="muted">Allgemeine Kommentare: ${S.comments.filter(c => !c.section).length}</p>
+    </div>
+    <div class="bottom">${statusLine()}<span class="grow"></span><b>${total(S.mine).toFixed(1)}</b>${actions()}</div>
+  </div>`;
+}
+
+// ---- Variant C: the IHK sheet, a table with one column block per examiner ----
+function VariantC() {
+  const devSecs = S.deviation ?? [];
+  const other = (txt) => seesOther() ? txt : '<span title="verblindet">verdeckt</span>';
+  const oCls = seesOther() ? 'num' : 'blind';
+  return `<div class="C">
+    <div class="top">${statusLine()}<span class="grow"></span>${actions()}</div>
+    ${notices()}
+    <table>
+      <thead><tr><th>Kriterium</th><th>Max</th><th>${S.role === 'admin' ? 'Prüfer A' : 'Sie'}</th><th style="width:36%">Bemerkung</th><th>${esc(S.partner)}</th>${seesOther() ? '<th>Bemerkung Partner</th>' : ''}</tr></thead>
+      <tbody>
+      ${MATRIX.map(s => `<tr class="sec ${devSecs.includes(s.name) ? 'dev' : ''}"><td>${s.k}. ${esc(s.name)} · ${s.weight} % ${pageLink(s)}</td><td class="num">10</td>
+          <td class="num">${secPts(S.mine, s)} → ${(secPts(S.mine, s) * s.weight / 10).toFixed(1)}</td><td></td>
+          <td class="${oCls}">${other(`${secPts(S.other, s)} → ${(secPts(S.other, s) * s.weight / 10).toFixed(1)}`)}</td>${seesOther() ? '<td></td>' : ''}</tr>
+        ${s.crit.map(c => `<tr><td>${c.k} ${esc(c.name)}</td><td class="num">${c.max}</td><td class="num">${ptsInput(c)}</td><td>${remarkInput(c)}</td>
+          <td class="${oCls}">${other(S.other.points[c.k] ?? '–')}</td>${seesOther() ? `<td class="muted">${esc(S.other.remarks[c.k] ?? '')}</td>` : ''}</tr>`).join('')}`).join('')}
+      <tr class="sec ${devSecs.includes('Gesamt') ? 'dev' : ''}"><td>Summe</td><td class="num">100</td><td class="num">${total(S.mine).toFixed(1)} (Note ${note(total(S.mine))})</td><td></td>
+        <td class="${oCls}">${other(total(S.other).toFixed(1))}</td>${seesOther() ? '<td></td>' : ''}</tr>
+      </tbody>
+    </table>
+    <div class="comments"><b>Kommentare</b>${commentList()}${commentForm()}</div>
+  </div>`;
+}
+
+// ---- switcher + render ----
+const VARIANTS = { A: ['Akkordeon', VariantA], B: ['Abschnitt für Abschnitt', VariantB], C: ['IHK-Bogen, Prüfer als Spalten', VariantC] };
+const KEYS = Object.keys(VARIANTS);
+const params = new URLSearchParams(location.search);
+let variant = KEYS.includes(params.get('variant')) ? params.get('variant') : 'A';
+scenario(params.get('scenario') in SCENARIOS ? params.get('scenario') : 'entwurf');
+function setUrl() { params.set('variant', variant); params.set('scenario', S.scenario); history.replaceState(null, '', '?' + params); }
+function cycle(d) { variant = KEYS[(KEYS.indexOf(variant) + d + KEYS.length) % KEYS.length]; render(); }
+function render() {
+  setUrl();
+  document.getElementById('who').textContent = S.me;
+  const pane = document.getElementById('pane'), top = pane.scrollTop;
+  pane.innerHTML = VARIANTS[variant][1]();
+  pane.scrollTop = top;
+  document.getElementById('switcher').innerHTML = `<button data-cyc="-1">◀</button><b>${variant} (${VARIANTS[variant][0]})</b><button data-cyc="1">▶</button>
+    <select id="scen">${Object.entries(SCENARIOS).map(([k, v]) => `<option value="${k}" ${k === S.scenario ? 'selected' : ''}>${v}</option>`).join('')}</select>
+    <button data-act="partnerSummary" title="Partner öffnet Übersicht (Live-Ereignis)">⚡</button>`;
+  document.getElementById('dump').textContent = JSON.stringify({ variant, ...S, totals: { mine: total(S.mine), other: total(S.other) } }, null, 1);
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.cyc) cycle(+t.dataset.cyc);
+  if (t.dataset.jump) jump(t.dataset.jump);
+  if (t.dataset.tab) { S.tab = t.dataset.tab; jump(S.pages[S.tab]); render(); } // B: tab drives the PDF page
+  if (t.dataset.dot) { const [k, v] = t.dataset.dot.split(':'); S.mine.points[k] = +v; if (S.mine.status === 'none') S.mine.status = 'draft'; render(); }
+  const a = t.dataset.act;
+  if (a === 'submit') submit();
+  if (a === 'withdraw') withdraw();
+  if (a === 'invite') invite();
+  if (a === 'summary') openSummary();
+  if (a === 'toggleComments') { S.commentsOpen = !S.commentsOpen; render(); }
+  if (a === 'comment') addComment(t.dataset.sec, document.getElementById('newComment').value);
+  if (a === 'partnerSummary') { S.summaryOpenedBy = S.partner; render(); }
+});
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.id === 'scen') { scenario(t.value); render(); }
+  if (t.dataset.pts) { const c = CRITS.find(x => x.k === t.dataset.pts); const v = t.value === '' ? undefined : Math.max(0, Math.min(c.max, Math.round(+t.value))); if (v === undefined) delete S.mine.points[c.k]; else S.mine.points[c.k] = v; if (S.mine.status === 'none') S.mine.status = 'draft'; render(); }
+  if (t.dataset.rem) { S.mine.remarks[t.dataset.rem] = t.value; if (S.mine.status === 'none') S.mine.status = 'draft'; render(); }
+  if (t.dataset.page) { S.pages[t.dataset.page] = +t.value; render(); }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest('input, textarea, select, [contenteditable]')) return;
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+render();
+</script>
+</body>
+</html>
