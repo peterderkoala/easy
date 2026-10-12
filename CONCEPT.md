@@ -364,12 +364,19 @@ One status per participant, split into four areas:
 
 - The two registered examiners grade together, live via SignalR.
 - Direct grading in the PDF viewer is too complex. Instead, split view: PDF left, predefined comment sections right.
+- `[DECIDED]` Split-view layout (issue 41, prototype on branch `prototype/grading-split-view`, variant B):
+  - Right pane shows one section at a time, as five tabs (number, short name, own section points, a check mark when all its criteria are complete).
+  - Each criterion is a card: point buttons 0 to max (no number field), the remark below, and the other gradings' points and remarks once visible (summary view, graded, admin).
+  - Comments sit under the section they are pinned to; general comments are counted below.
+  - A bottom bar carries the examiner statuses, the own total, submit / withdraw and "open summary view". Deviation, "summary view opened" and graded notices sit above the tabs.
+  - Page sync is a jump only: the examiner sets a PDF page per section, and switching tabs (or "→ S.") jumps the PDF there via `#page=N`. The page anchor belongs to the examiner's grading (plain, not blinded, not audited). Nothing follows the reader's scroll position, so the native browser viewer suffices and pdf.js is not needed (issue 36).
 - `[DECIDED]` The sections come from the IHK grading matrix for the documentation (Fachinformatiker Anwendungsentwicklung only for now): 5 weighted sections, 13 criteria with integer points and a remark each, total out of 100. Source: `docs/samples/bewertungsmatrix/` (issue 33). The matrix covers only the documentation, no other exam step.
+  - `[CLARIFICATION]` The matrix has 14 criteria (2 + 2 + 3 + 5 + 2), not 13; "13" in this section was a miscount (found in issue 41).
 - `[DECIDED]` Section weights default to 25 % / 10 % for sections 4 and 5 (a 20 % / 15 % variant exists) and should be adjustable by an admin in the frontend. How is decided in issue 37.
 - `[DECIDED]` Sections and points model (issue 37):
   - The grading matrix is fixed in code (sections, criteria, max points). Criterion keys carry a matrix version (e.g. `fiae-2026:3.2`); stored points refer to them. A new IHK matrix is a code change.
   - Weights live in the configuration table and are fixed per cycle: the admin form edits the default for new cycles (15/10/40/25/10) and the weights of a cycle without any submitted examiner grading. The five weights add up to 100 %.
-  - Points are integers from 0 to the criterion's max. Drafts may be incomplete; submit needs points and a remark of at least 10 characters (a constant) on all 13 criteria.
+  - Points are integers from 0 to the criterion's max. Drafts may be incomplete; submit needs points and a remark of at least 10 characters (a constant) on all 14 criteria.
   - Comments: one open thread per documentation, optionally on a section, by any examiner including the registered pair. No points, so not blinded. Replaces the S14 `area` and `counted` columns.
   - Remark and comment text are encrypted with the participant key (S02); points stay plain. Criterion points and remarks are `[Audited]` (S11); comments are not.
 - Both examiners grade in this module. The exam is scored here.
