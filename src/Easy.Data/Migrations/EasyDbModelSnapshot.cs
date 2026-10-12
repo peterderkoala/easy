@@ -417,6 +417,40 @@ namespace Easy.Data.Migrations
                     b.ToTable("processed_events", (string)null);
                 });
 
+            modelBuilder.Entity("Easy.Data.Registration", b =>
+                {
+                    b.Property<Guid>("ParticipantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("participant_id");
+
+                    b.Property<Guid>("ExaminerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("examiner_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("Slot")
+                        .HasColumnType("integer")
+                        .HasColumnName("slot");
+
+                    b.HasKey("ParticipantId", "ExaminerId")
+                        .HasName("pk_registrations");
+
+                    b.HasIndex("ExaminerId")
+                        .HasDatabaseName("ix_registrations_examiner_id");
+
+                    b.HasIndex("ParticipantId", "Slot")
+                        .IsUnique()
+                        .HasDatabaseName("ix_registrations_participant_id_slot");
+
+                    b.ToTable("registrations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_registrations_slot", "slot IN (1, 2)");
+                        });
+                });
+
             modelBuilder.Entity("Easy.Data.Document", b =>
                 {
                     b.HasOne("Easy.Data.Participant", null)
@@ -500,6 +534,23 @@ namespace Easy.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_participants_cycles_cycle_id");
+                });
+
+            modelBuilder.Entity("Easy.Data.Registration", b =>
+                {
+                    b.HasOne("Easy.Data.Examiner", null)
+                        .WithMany()
+                        .HasForeignKey("ExaminerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_registrations_examiners_examiner_id");
+
+                    b.HasOne("Easy.Data.Participant", null)
+                        .WithMany()
+                        .HasForeignKey("ParticipantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_registrations_participants_participant_id");
                 });
 #pragma warning restore 612, 618
         }

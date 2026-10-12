@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using Rebus.Bus;
 using Rebus.Config;
@@ -83,6 +84,8 @@ public static class Messaging
             write => write.Use(async (context, next) =>
             {
                 var db = context.RequestServices.GetRequiredService<EasyDb>().Database;
+                var afterCommit = new List<Func<Task>>();
+                context.Items[AfterCommitKey] = afterCommit;
                 await using var transaction = await db.BeginTransactionAsync();
                 using var scope = new RebusTransactionScope();
                 scope.UseOutbox((NpgsqlConnection)db.GetDbConnection(), (NpgsqlTransaction)transaction.GetDbTransaction());
@@ -93,7 +96,25 @@ public static class Messaging
 
                 await scope.CompleteAsync();
                 await transaction.CommitAsync();
+                foreach (var action in afterCommit)
+                {
+                    try
+                    {
+                        await action();
+                    }
+                    catch (Exception e) // the write stands; a lost notification is healed by the client's refetch
+                    {
+                        context.RequestServices.GetRequiredService<ILogger<EasyDb>>().LogWarning(e, "After-commit action failed.");
+                    }
+                }
             }));
+
+    static readonly object AfterCommitKey = new();
+
+    // Runs after UseOutbox committed the request, never on rollback. For hub notifications (notify then refetch):
+    // sent earlier, a client could refetch the old state. Write requests only.
+    public static void AfterCommit(this HttpContext context, Func<Task> action) =>
+        (context.Items[AfterCommitKey] as List<Func<Task>> ?? throw new InvalidOperationException("AfterCommit needs a write request under UseOutbox.")).Add(action);
 
     // Idempotent consumer, for use inside a handler: records the event ID in the handler's outbox transaction
     // (Rebus opens it per message and commits it after the handler). False = already processed, skip.

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Easy.MainApi.Grading;
 
 // Live documentation grading (S06, S09): any examiner watches any documentation. Writers send to Group(participantId)
-// through IHubContext<GradingHub, IGradingClient> after their save, not through the outbox: the client refetches on reconnect.
+// through IHubContext<GradingHub, IGradingClient> in HttpContext.AfterCommit, not through the outbox: the client refetches on reconnect.
 // ponytail: groups live in this one instance; add a backplane when MainApi scales out.
 public class GradingHub(EasyDb db) : Hub<IGradingClient>
 {

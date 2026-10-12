@@ -73,6 +73,16 @@ public class Examiner
     public bool Active { get; set; } = true;
 }
 
+// S05 (issue 35): an examiner's own place as one of the two examiners of a documentation. The unique slot (1 or 2)
+// per participant keeps concurrent registrations from taking a third place.
+public class Registration
+{
+    public Guid ParticipantId { get; set; }
+    public Guid ExaminerId { get; set; }
+    public int Slot { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
 public enum OralSessionStatus { Open, Closed }
 
 public class OralSession

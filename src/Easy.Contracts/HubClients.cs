@@ -7,6 +7,7 @@ namespace Easy.Contracts;
 public interface IGradingClient
 {
     Task RegistrationTaken(Guid participantId, string examiner);
+    Task RegistrationReleased(Guid participantId, string examiner);
 }
 
 // ExamRoom hub (S07).

@@ -5,13 +5,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Easy.Notification;
 
-// S12: one plain-text German mail per active examiner (recipient rules come with the feature slices).
+// S12: one plain-text German mail per active examiner of the given ones (default: all).
 // ponytail: if a later mail of the batch fails, the retry resends the earlier ones; per-recipient dedupe when that hurts
 public static class Mailer
 {
-    public static async Task MailActiveExaminers(EasyDb db, IConfiguration config, string subject, string body)
+    public static async Task MailActiveExaminers(EasyDb db, IConfiguration config, string subject, string body, IQueryable<Examiner>? examiners = null)
     {
-        var recipients = await db.Examiners.Where(e => e.Active && e.Email != "").Select(e => e.Email).ToListAsync();
+        var recipients = await (examiners ?? db.Examiners).Where(e => e.Active && e.Email != "").Select(e => e.Email).ToListAsync();
 
         using var smtp = new SmtpClient(config["Smtp:Host"] ?? throw new InvalidOperationException("Smtp:Host is not configured."), config.GetValue("Smtp:Port", 25))
         {

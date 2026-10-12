@@ -6,6 +6,7 @@ using Easy.MainApi.Grading;
 using Easy.MainApi.Imports;
 using Easy.MainApi.OralSessions;
 using Easy.MainApi.Participants;
+using Easy.MainApi.Registrations;
 using Easy.MainApi.Settings;
 using Easy.Platform;
 using Microsoft.EntityFrameworkCore;
@@ -41,6 +42,8 @@ app.MapImports();
 app.MapUploadDocument();
 app.MapCreateOralSession();
 app.MapSettings();
+app.MapRegistrations();
+app.MapDeactivation();
 // Hub connections outlive the 5-min token; close at expiry and the client reconnects (as ExamRoom).
 app.MapHub<GradingHub>("/hubs/grading", o => o.CloseOnAuthenticationExpiration = true)
     .RequireAuthorization(p => p.RequireRole("examiner")); // admins hold it too

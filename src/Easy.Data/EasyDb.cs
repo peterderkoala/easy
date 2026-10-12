@@ -18,6 +18,7 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
     public DbSet<ProcessedEvent> ProcessedEvents => Set<ProcessedEvent>();
     public DbSet<ImportJob> ImportJobs => Set<ImportJob>();
     public DbSet<ConfigEntry> ConfigEntries => Set<ConfigEntry>();
+    public DbSet<Registration> Registrations => Set<Registration>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder) =>
         builder.Properties<Enum>().HaveConversion<string>();
@@ -56,6 +57,14 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
             e.OwnsMany(j => j.Errors, b => b.ToJson());
         });
         model.Entity<ConfigEntry>().HasKey(c => c.Key);
+        model.Entity<Registration>(e =>
+        {
+            e.HasKey(r => new { r.ParticipantId, r.ExaminerId });
+            e.HasIndex(r => new { r.ParticipantId, r.Slot }).IsUnique();
+            e.HasOne<Participant>().WithMany().HasForeignKey(r => r.ParticipantId);
+            e.HasOne<Examiner>().WithMany().HasForeignKey(r => r.ExaminerId);
+            e.ToTable(t => t.HasCheckConstraint("ck_registrations_slot", "slot IN (1, 2)"));
+        });
         model.Entity<ProcessedEvent>().Property(p => p.ProcessedAt).HasDefaultValueSql("now()");
     }
 }
