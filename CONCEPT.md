@@ -369,8 +369,17 @@ One status per participant, split into four areas:
   - Implemented purely at application level: other examiner's data is not sent. No separate tables per examiner.
 - Deviation: if the calculated grades differ too much, the system shows a notice. A third examiner as arbiter should be considered.
   - Notice only, no automatic invitation. Decision stays with the examiners.
+  - `[CLARIFICATION]` The third examiner is a flow, not only a consideration: see the decision on two examiner gradings below (issue 34).
   - Threshold: fixed in the database configuration table, not configurable per cycle.
   - Configuration table: central key-value persistence for system settings. Normal table in the same Postgres DB, accessed via EF Core (no separate configuration service).
+- `[DECIDED]` From two examiner gradings to one documentation score (issue 34):
+  - Always two registered examiners; no single-examiner grading.
+  - Each examiner submits their own examiner grading. Until both have submitted, both may still change theirs (e.g. after a summary-view call).
+  - On the second submit, gap within the threshold: status graded, documentation score = `ROUND((T1 + T2) / 2, 1)`.
+  - Gap above the threshold: status stays in progress with the deviation notice. Either examiner may call a third examiner (invited by name, may decline); finishing without one needs both. Below the threshold no third examiner can be called.
+  - The third examiner starts blind and may open the summary view. Their submit sets graded; documentation score = `ROUND((T1 + T2 + T3) / 3, 1)`, no further deviation check.
+  - Rounding half away from zero (as Excel `ROUND`): 47.5 and 45.0 give 46.3.
+  - The documentation score is stored in `Grade` (source documentation) when graded, so later weight changes do not alter it. The German grade 1 to 6 is derived for display only (scale in `docs/samples/bewertungsmatrix/`).
 - Status: submitted, in progress, graded. "Graded" locks the grading.
 - Not a real session like the Virtual Room. Locking depends only on status "graded".
 
