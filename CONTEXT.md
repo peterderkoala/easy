@@ -38,6 +38,10 @@ _Avoid_: documentation grade, final points
 An examiner invited by name when the two registered examiners' totals differ beyond the threshold; their examiner grading joins the average.
 _Avoid_: arbiter, Drittprüfer, referee
 
+**Summary view**:
+The view in which a registered or third examiner, on their own decision, sees the other examiner gradings of a documentation before it is graded. It lifts blinding only for the one who opened it.
+_Avoid_: comparison, overview, unblinding
+
 **Remark**:
 An examiner's free text on one criterion, part of that examiner's grading.
 _Avoid_: Bemerkung, note (a note is the German grade 1 to 6), comment

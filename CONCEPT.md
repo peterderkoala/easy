@@ -19,7 +19,7 @@ For the planning agent. Each item needs a decision or check before the affected 
 - **Unlimited retention conflicts with GDPR storage limitation** [S11]. Even with "forget", indefinite retention of personal records needs a legal check.
 - **RESOLVED (ADR 0001, S02): Documents survive "forget" as ciphertext** [S06, S02]. Forget now also deletes the SeaweedFS objects. Original problem: SeaweedFS objects remain stored. Deletion of the object, not only key loss, should be considered.
 - **RESOLVED (ADR 0002, S06): SSE-C enforcement unverified** [S06]. SeaweedFS 4.48 is pinned; the spike tests show a read with a wrong or missing key fails and the stored bytes are ciphertext. Original problem: Relies on a current SeaweedFS version and a read-test that is not yet done.
-- **Blinding is application-level only** [S06]. Safe only if the API never sends the partner's scores. This needs an explicit DTO rule and test in S09.
+- **RESOLVED (S06, S09, issue 38): Blinding is application-level only** [S06]. Now: hub messages never carry points (strongly typed clients), one visibility function feeds the read DTO, and an integration test checks REST reads and hub messages. Original problem: Safe only if the API never sends the partner's scores. This needs an explicit DTO rule and test in S09.
 - **Background consumers have no authorization model** [S09]. Notification runs without examiner context. Rules for which claims or service identity it uses are undefined.
 - **Interim and closed-area points editable by any examiner** [S07]. No second check or role split. The audit type "correction" records it but does not prevent it.
 - **Hangfire dashboard exposure** [S16]. Access restriction is open.
@@ -378,6 +378,14 @@ One status per participant, split into four areas:
   - Applies only to documentation, not to application (where it is transparent).
   - When needed, e.g. during a phone call, an examiner starts a summary view showing both grades.
   - Implemented purely at application level: other examiner's data is not sent. No separate tables per examiner.
+- `[DECIDED]` Live grading and visibility (issue 38):
+  - Live events on the MainApi hub (S09), none carrying points: examiner grading status (draft, submitted, withdrawn), summary view opened, comment added, deviation notice, third examiner invited/accepted/declined, graded, registration taken or released. No presence or typing marker.
+  - Summary view: a registered or the third examiner opens it alone, any time before graded, no consent. It shows the other current examiner gradings, drafts included, and unblinds only the viewer. Opening is audited (S11) and the others get the live event. While open it refetches on each change event.
+  - Visibility of points and remarks:
+    - Registered or third examiner: own grading always; the others' after opening the summary view or once graded.
+    - Admin not grading this documentation: all examiner gradings at any time, drafts included, read-only, reads not audited. An admin who is a registered or third examiner is blinded like anyone else.
+    - Other examiners: status and comments only.
+  - One visibility function decides this and feeds the grading read DTO. Test: examiner A saves draft points; B's REST read and every hub message B received contain no A points; after B opens the summary view the read contains them.
 - Deviation: if the calculated grades differ too much, the system shows a notice. A third examiner as arbiter should be considered.
   - Notice only, no automatic invitation. Decision stays with the examiners.
   - `[CLARIFICATION]` The third examiner is a flow, not only a consideration: see the decision on two examiner gradings below (issue 34).
@@ -478,6 +486,8 @@ One status per participant, split into four areas:
 - Live changes during parallel work by several examiners.
 - "In progress" marker for rows being edited.
 - Dedicated hub per Virtual Room (S07).
+- `[DECIDED]` Every hub is strongly typed (`Hub<IXxxClient>`), no string `SendAsync` (issue 38). ExamRoom moves over with the first grading spec.
+- `[DECIDED]` Grading hub (issue 38): MainApi `/hubs/grading`, routed through YARP, one instance without backplane. Notify then refetch: messages carry only ids, enums and display names; the client re-reads through REST, which applies blinding, and refetches after a reconnect. One group per documentation `documentation-{participantId}`, joinable by any examiner. List screens are not live in this slice.
 - `[DECIDED]` Skeleton join path: MainApi creates an `OralSession` through a REST call by any examiner. ExamRoom only reads the table to check that the session exists and is open. Hub method `JoinSession(sessionId)` adds the connection to the SignalR group `session-{id}` and broadcasts `ExaminerJoined` with the display name from the token. Closed or unknown sessions reject the join. Presence is not stored. One instance, no backplane yet. Any authenticated user with the `examiner` role (admins include it) may join any open session; counted-scoring permissions (main examiners only) come with the grading feature slice.
 - Container split:
   - Main API service: general live updates (documentation, "in progress").
