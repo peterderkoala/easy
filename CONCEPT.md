@@ -26,9 +26,9 @@ For the planning agent. Each item needs a decision or check before the affected 
 
 ### Consistency and integrity
 
-- **Frozen grading document vs. later corrections** [S06, S07]. The signed document can diverge from live points. Only the audit log explains the gap. Confirm this is accepted, or define a re-issue process.
+- **Frozen grading document vs. later corrections** [S06, S07]. The signed document can diverge from live points. Only the audit log explains the gap. Confirm this is accepted, or define a re-issue process. Documentation grading (issue 40) has no correction path: graded is final until the grading-document slice decides corrections and re-issue together.
 - **Dual write: DB commit + RabbitMQ publish** [S09, S11, S12]. Resolved: Rebus.PostgreSql transactional outbox (ADR 0003, S09). Remaining risk: the library calls the outbox experimental (versions pinned).
-- **Concurrent edits to the same score** [S03, S06]. "In progress" is a UI marker only. Optimistic concurrency or locking is not defined.
+- **Concurrent edits to the same score** [S03, S06]. "In progress" is a UI marker only. Optimistic concurrency or locking is not defined. Resolved for documentation grading (issue 40): optimistic concurrency on the examiner grading, a stale save gets 409. Application approval still open.
 - **Application conflicting decisions** [S03, S15]. Two examiners may decide differently. Resolution rule is open.
 - **Examiner role for applications unclear** [S03, S15]. "Two examiners" is not restricted to registered examiners. Confirm who may approve.
 
@@ -310,6 +310,7 @@ One status per participant, split into four areas:
   - "Began grading" = the examiner submitted their examiner grading. Before that, an examiner may unregister; deactivation releases the registration the same way. The draft is discarded and the place reopens for free registration. After submit the grading stays and counts, also after deactivation.
   - The third examiner (S06) is not a registration and does not count toward the two: an invitation (invited, accepted, declined) to an examiner other than the registered pair. They may step back before submit, discarding their draft.
   - No admin assignment of free places in this slice; the admin overview of open to-dos comes later.
+- `[DECIDED]` Deactivation in the documentation-grading slice (issue 40): admin-only API to deactivate and reactivate an examiner, no UI. Deactivating releases the examiner's unsubmitted registrations and third-examiner invitations as described above.
 
 ### User management (lightweight)
 
@@ -346,6 +347,7 @@ One status per participant, split into four areas:
 - `[CLARIFICATION]` `[DECIDED]` Hard limit: 15 MB by default, configurable through an environment variable. PDF only (magic-bytes check). Enforced at the YARP upload route, Kestrel and MainApi, all reading the same setting. Uploads go through MainApi (proxy), which applies SSE-C with the unwrapped participant key.
 - `[DECIDED]` Every role may upload documents (examiners and admins; admins hold the examiner role). Service accounts may not.
 - `[OPEN]` Re-upload: which re-upload is meant (application vs documentation, before vs after grading) and its effect on the status (S10, issue 29).
+  - `[DECIDED]` Documentation re-upload (issue 40): allowed while the documentation status is submitted. It adds a new `Document`, and the split view shows the latest one. Once in progress or graded, MainApi rejects the upload with 409. Application PDF and history stay open in issue 29.
 - Storage: S3-compatible object storage, decided on SeaweedFS (Apache-2.0, lightweight, Docker-friendly).
   - Objects encrypted with the participant-specific key (SSE-C). No separate key.
   - Deletion concept (S11): unreadable by key deletion.
@@ -374,7 +376,7 @@ One status per participant, split into four areas:
   - `[CLARIFICATION]` The matrix has 14 criteria (2 + 2 + 3 + 5 + 2), not 13; "13" in this section was a miscount (found in issue 41).
 - `[DECIDED]` Section weights default to 25 % / 10 % for sections 4 and 5 (a 20 % / 15 % variant exists) and should be adjustable by an admin in the frontend. How is decided in issue 37.
 - `[DECIDED]` Sections and points model (issue 37):
-  - The grading matrix is fixed in code (sections, criteria, max points). Criterion keys carry a matrix version (e.g. `fiae-2026:3.2`); stored points refer to them. A new IHK matrix is a code change.
+  - The grading matrix is fixed in code (sections, criteria, max points). Criterion keys carry a matrix version (e.g. `fiae-2026:3.2`); stored points refer to them. A new IHK matrix is a code change (ADR 0004).
   - Weights live in the configuration table and are fixed per cycle: the admin form edits the default for new cycles (15/10/40/25/10) and the weights of a cycle without any submitted examiner grading. The five weights add up to 100 %.
   - Points are integers from 0 to the criterion's max. Drafts may be incomplete; submit needs points and a remark of at least 10 characters (a constant) on all 14 criteria.
   - Comments: one open thread per documentation, optionally on a section, by any examiner including the registered pair. No points, so not blinded. Replaces the S14 `area` and `counted` columns.
@@ -392,7 +394,7 @@ One status per participant, split into four areas:
     - Registered or third examiner: own grading always; the others' after opening the summary view or once graded.
     - Admin not grading this documentation: all examiner gradings at any time, drafts included, read-only, reads not audited. An admin who is a registered or third examiner is blinded like anyone else.
     - Other examiners: status and comments only.
-  - One visibility function decides this and feeds the grading read DTO. Test: examiner A saves draft points; B's REST read and every hub message B received contain no A points; after B opens the summary view the read contains them.
+  - One visibility function decides this and feeds the grading read DTO (ADR 0005). Test: examiner A saves draft points; B's REST read and every hub message B received contain no A points; after B opens the summary view the read contains them.
 - Deviation: if the calculated grades differ too much, the system shows a notice. A third examiner as arbiter should be considered.
   - Notice only, no automatic invitation. Decision stays with the examiners.
   - `[CLARIFICATION]` The third examiner is a flow, not only a consideration: see the decision on two examiner gradings below (issue 34).
@@ -413,6 +415,14 @@ One status per participant, split into four areas:
   - Notice (live event, S09): registered examiners and the third examiner see the names of the deviating sections and/or "total", never gaps or direction (with one's own points that would reveal the other's); the numbers come only through the summary view. Admins not grading see the gaps. Other examiners see the status deviation only.
   - Configuration table `ConfigEntry(key text PK, value text)` holds system-wide settings only: `grading.deviation.section-points` (4), `grading.deviation.total-points` (10), `grading.default-weights` (15/10/40/25/10). Keys are code constants, values parsed in code, defaults seeded by migration, edited by admins in the settings form, `[Audited]` (S11). Per-cycle weights are columns on `Cycle`, copied from the default when the cycle is created.
 - Status: submitted, in progress, graded. "Graded" locks the grading.
+- `[DECIDED]` Documentation grading slice (issue 40):
+  - In progress = the first examiner grading submitted. Graded is final: no unlock or correction in this slice (corrections come with the grading-document slice, S11 `correction`).
+  - Concurrent saves of one examiner grading (two tabs or devices): optimistic concurrency, the stale save gets 409 and the client refetches.
+  - Grading events are live hub events only, no mail. The documentation upload mail goes to the registered examiners, or to all active examiners if nobody is registered.
+  - Finishing without a third examiner: on a deviation, each registered examiner may accept it. When both have accepted, status graded with `ROUND((T1 + T2) / 2, 1)`. Withdrawing a submit clears both acceptances; once a third examiner is invited, accepting is not possible.
+  - A declined invitation, or a third examiner stepping back, lifts the freeze: back to a plain deviation (invite again, accept or revise).
+  - Graded makes the whole documentation grading read-only, comments included.
+  - German grade 1 to 6 from the score by lower bounds: >= 92 → 1, >= 81 → 2, >= 67 → 3, >= 50 → 4, >= 30 → 5, else 6 (91.5 → 2).
 - Not a real session like the Virtual Room. Locking depends only on status "graded".
 
 ### Grading document
@@ -553,7 +563,7 @@ One status per participant, split into four areas:
 - Further user management features (S05).
 - Success criteria for Easy (S01).
 - Retention of the encrypted import CSV in the Rebus error queue (S02, issue 28).
-- Re-upload of documents and its effect on the status (S06, issue 29).
+- Re-upload of documents and its effect on the status (S06, issue 29); documentation re-upload decided in issue 40.
 - CSV: uniqueness of the identification number within a cycle, and whether one person can appear with two numbers (S02).
 - Auditability: scope of logged operations (S11).
 - GDPR: concrete requirements for data storage and audit log (S11).
@@ -608,7 +618,7 @@ One status per participant, split into four areas:
 
 - Action-based events (e.g. application approval, session end, documentation upload) are published by services to RabbitMQ. The notification service consumes them.
 - Time-based reminders (due dates): Hangfire periodically checks deadlines and publishes the event itself. Hangfire uses Rebus (S09), job persistence in Postgres.
-- `[DECIDED]` Skeleton reminder: a Hangfire recurring job runs daily (cron configurable, default 07:00). It finds cycles whose documentation due date is within 3 days (configurable) and publishes `DeadlineApproaching(cycleId, module, dueDate, daysLeft)` directly, without the outbox. Event ID `deadline:{cycleId}:{module}:{dueDate}:{daysLeft}`, so Hangfire retries and re-runs do not send duplicate mails. The notification service mails all active examiners (recipient rules come with the feature slices) one plain-text German mail each. Addresses come from the `Examiner` mirror (S14). The Hangfire dashboard is disabled in the skeleton.
+- `[DECIDED]` Skeleton reminder: a Hangfire recurring job runs daily (cron configurable, default 07:00). It finds cycles whose documentation due date is within 3 days (configurable) and publishes `DeadlineApproaching(cycleId, module, dueDate, daysLeft)` directly, without the outbox. Event ID `deadline:{cycleId}:{module}:{dueDate}:{daysLeft}`, so Hangfire retries and re-runs do not send duplicate mails. The notification service mails all active examiners (recipient rules come with the feature slices; documentation upload: S06, issue 40) one plain-text German mail each. Addresses come from the `Examiner` mirror (S14). The Hangfire dashboard is disabled in the skeleton.
 - Events carry IDs and minimal data, never personal data. Consumers are idempotent: processed event IDs are recorded and repeats skipped.
 - Application PDF upload triggers no notification (S03). Documentation upload does (S06).
 
@@ -657,6 +667,7 @@ Skeleton subset (decided): Cycle, Participant, Examiner (mirror of the Keycloak 
   - Set by two examiner decisions. Rule for conflicting decisions: open.
 - **Documentation**: submitted (upload) → in progress → graded. Graded is locked.
   - Reassignment allowed only before "in progress". Trigger for "begun" (first point entry?): open.
+  - `[CLARIFICATION]` Documentation goes in progress on the first examiner grading submitted (issue 40).
   - `[CLARIFICATION]` Per examiner, not per documentation: an examiner can be changed until they submit their examiner grading (S05, issue 35).
 - **Written exam**: attended / failed / passed derived from three point grades. Formula open (S10).
 - **Oral session**: open → closed. Closed is final. No reopen (S07) One session per participant (S14).
