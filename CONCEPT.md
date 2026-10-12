@@ -359,6 +359,8 @@ One status per participant, split into four areas:
 
 - The two registered examiners grade together, live via SignalR.
 - Direct grading in the PDF viewer is too complex. Instead, split view: PDF left, predefined comment sections right.
+- `[DECIDED]` The sections come from the IHK grading matrix for the documentation (Fachinformatiker Anwendungsentwicklung only for now): 5 weighted sections, 13 criteria with integer points and a remark each, total out of 100. Source: `docs/samples/bewertungsmatrix/` (issue 33). The matrix covers only the documentation, no other exam step.
+- `[DECIDED]` Section weights default to 25 % / 10 % for sections 4 and 5 (a 20 % / 15 % variant exists) and should be adjustable by an admin in the frontend. How is decided in issue 37.
 - Both examiners grade in this module. The exam is scored here.
 - Other, unregistered examiners may comment. These comments do not count toward the grade.
 - Blinding: by default, the two examiners' grades are hidden from each other.
