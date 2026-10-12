@@ -366,6 +366,12 @@ One status per participant, split into four areas:
 - Direct grading in the PDF viewer is too complex. Instead, split view: PDF left, predefined comment sections right.
 - `[DECIDED]` The sections come from the IHK grading matrix for the documentation (Fachinformatiker Anwendungsentwicklung only for now): 5 weighted sections, 13 criteria with integer points and a remark each, total out of 100. Source: `docs/samples/bewertungsmatrix/` (issue 33). The matrix covers only the documentation, no other exam step.
 - `[DECIDED]` Section weights default to 25 % / 10 % for sections 4 and 5 (a 20 % / 15 % variant exists) and should be adjustable by an admin in the frontend. How is decided in issue 37.
+- `[DECIDED]` Sections and points model (issue 37):
+  - The grading matrix is fixed in code (sections, criteria, max points). Criterion keys carry a matrix version (e.g. `fiae-2026:3.2`); stored points refer to them. A new IHK matrix is a code change.
+  - Weights live in the configuration table and are fixed per cycle: the admin form edits the default for new cycles (15/10/40/25/10) and the weights of a cycle without any submitted examiner grading. The five weights add up to 100 %.
+  - Points are integers from 0 to the criterion's max. Drafts may be incomplete; submit needs points and a remark of at least 10 characters (a constant) on all 13 criteria.
+  - Comments: one open thread per documentation, optionally on a section, by any examiner including the registered pair. No points, so not blinded. Replaces the S14 `area` and `counted` columns.
+  - Remark and comment text are encrypted with the participant key (S02); points stay plain. Criterion points and remarks are `[Audited]` (S11); comments are not.
 - Both examiners grade in this module. The exam is scored here.
 - Other, unregistered examiners may comment. These comments do not count toward the grade.
 - Blinding: by default, the two examiners' grades are hidden from each other.
@@ -604,7 +610,7 @@ Proposed entities, derived from S02–S12. Not a final schema.
 | Registration | participant_id, examiner_id | Documentation pair (2 examiners) |
 | Grade | participant_id, source (written/documentation/oral/interim), value, updated_by, updated_at | Current value only, no history (S09). `source` enum, unique on `(participant_id, source)`, `value` numeric(5,1) non-negative; maximum per source not enforced in the skeleton |
 | DocumentationScore | participant_id, examiner_id, section, points | Per-examiner; hidden from partner until summary view (S06) |
-| Comment | participant_id, area, author_id, counted flag, text | Uncounted comments from non-registered examiners |
+| Comment | participant_id, section (optional), author_id, text (encrypted) | Open discussion on a documentation, never counted (S06, issue 37) |
 | OralSession | id, participant_id, status (open/closed) | 3 main examiners; joined examiners; closed = final. `[DECIDED]` One session per participant (so per cycle), unique on `participant_id`; a second create is rejected. Skeleton: only these three fields, created by MainApi, read by ExamRoom |
 | OralGrade | session_id, examiner_id, criteria values, counted flag | Counted only for main examiners |
 | TextTemplate | id, category (rejection/condition), text, created_by | Fixed plus examiner-added (S03) |

@@ -41,3 +41,11 @@ _Avoid_: arbiter, Drittprüfer, referee
 **Remark**:
 An examiner's free text on one criterion, part of that examiner's grading.
 _Avoid_: Bemerkung, note (a note is the German grade 1 to 6), comment
+
+**Comment**:
+Free text by any examiner in a documentation's open discussion, optionally on one section. Never part of a grade, so not blinded.
+_Avoid_: remark (that is part of an examiner grading), note
+
+**Weight**:
+A section's share of the total (e.g. 40 %). Fixed per cycle; the five weights add up to 100 %.
+_Avoid_: Gewichtung, factor
