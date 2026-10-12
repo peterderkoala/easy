@@ -2,6 +2,7 @@ using Easy.Data;
 using Easy.MainApi.Documents;
 using Easy.MainApi.Examiners;
 using Easy.MainApi.Grades;
+using Easy.MainApi.Grading;
 using Easy.MainApi.Imports;
 using Easy.MainApi.OralSessions;
 using Easy.MainApi.Participants;
@@ -25,6 +26,7 @@ builder.Services.AddSingleton<ParticipantKeys>();
 builder.Services.AddSingleton<DocumentStore>().AddSingleton<IParticipantObjects>(sp => sp.GetRequiredService<DocumentStore>());
 builder.Services.Configure<ImportOptions>(builder.Configuration.GetSection("Import"));
 builder.Services.AddRebusHandler<ImportCycleHandler>();
+builder.Services.AddSignalR();
 var app = builder.Build();
 
 // MainApi owns the schema; the other hosts start after it is healthy (S16).
@@ -39,6 +41,9 @@ app.MapImports();
 app.MapUploadDocument();
 app.MapCreateOralSession();
 app.MapSettings();
+// Hub connections outlive the 5-min token; close at expiry and the client reconnects (as ExamRoom).
+app.MapHub<GradingHub>("/hubs/grading", o => o.CloseOnAuthenticationExpiration = true)
+    .RequireAuthorization(p => p.RequireRole("examiner")); // admins hold it too
 app.MapStaticAssets();
 app.MapFallbackToFile("index.html");
 

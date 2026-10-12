@@ -76,8 +76,10 @@ public static class Messaging
     // Write requests run in one EF transaction; messages published during the request are stored in the outbox
     // on the same connection and transaction, and both commit together after the endpoint returns a non-error status.
     // ponytail: the response may start before the commit; buffer or commit earlier if endpoints stream large bodies.
+    // SignalR transport requests (/hubs) are not writes; hubs send after their own save.
     public static IApplicationBuilder UseOutbox(this IApplicationBuilder app) =>
-        app.UseWhen(c => !(HttpMethods.IsGet(c.Request.Method) || HttpMethods.IsHead(c.Request.Method) || HttpMethods.IsOptions(c.Request.Method)),
+        app.UseWhen(c => !(HttpMethods.IsGet(c.Request.Method) || HttpMethods.IsHead(c.Request.Method) || HttpMethods.IsOptions(c.Request.Method)
+                || c.Request.Path.StartsWithSegments("/hubs")),
             write => write.Use(async (context, next) =>
             {
                 var db = context.RequestServices.GetRequiredService<EasyDb>().Database;

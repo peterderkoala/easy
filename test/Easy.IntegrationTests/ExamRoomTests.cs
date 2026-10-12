@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Easy.Contracts;
 using Easy.Data;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -42,13 +43,13 @@ public class ExamRoomTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifeti
     }
 
     [Fact]
-    public async Task Examiner_can_join_open_session_and_others_are_notified()
+    public async Task Exam_room_join_still_broadcasts_examiner_joined()
     {
         string examRoom = StartExamRoom();
         Guid session = await CreateSession(await keycloak.LoginAsync("examiner"));
         var first = await Connect(examRoom, await keycloak.LoginAsync("examiner"));
         var joined = new TaskCompletionSource<string>();
-        first.On<string>("ExaminerJoined", name => { if (name == "Dev Admin") joined.TrySetResult(name); });
+        first.On<string>(nameof(IExamRoomClient.ExaminerJoined), name => { if (name == "Dev Admin") joined.TrySetResult(name); });
         await first.InvokeAsync("JoinSession", session);
 
         var second = await Connect(examRoom, await keycloak.LoginAsync("admin"));
