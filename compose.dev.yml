@@ -1,0 +1,169 @@
+# Dev topology (S16). Start: cp .env.example .env && docker compose -f compose.dev.yml up --build
+# Dev only: ports are published on 127.0.0.1. See compose.example.yml for a deployment template.
+name: easy
+
+x-app-healthcheck: &app-healthcheck
+  # aspnet image has no curl; bash /dev/tcp is enough
+  test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q Healthy <&3"]
+  interval: 5s
+  retries: 20
+
+networks:
+  public: {}
+  internal: {}
+
+secrets:
+  master_secret:
+    file: ./secrets/master_secret
+
+services:
+  gateway:
+    build: {context: ., args: {PROJECT: Easy.Gateway}}
+    healthcheck: *app-healthcheck
+    networks: [public, internal]
+    ports: ["127.0.0.1:8080:8080"]
+    environment:
+      Upload__MaxBytes: ${UPLOAD_MAX_BYTES:-15728640} # same limit as main-api (S06)
+    depends_on:
+      main-api: {condition: service_healthy}
+      exam-room: {condition: service_healthy}
+
+  main-api:
+    build: {context: ., args: {PROJECT: Easy.MainApi}}
+    healthcheck: *app-healthcheck
+    networks: [internal]
+    secrets: [master_secret] # MainApi only (ADR 0001)
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
+      Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Keycloak__MetadataAddress: http://keycloak:8080/realms/easy/.well-known/openid-configuration
+      Keycloak__RequireHttpsMetadata: "false"
+      Seaweed__Endpoint: http://seaweedfs:8333
+      Seaweed__AccessKey: ${SEAWEEDFS_ACCESS_KEY}
+      Seaweed__SecretKey: ${SEAWEEDFS_SECRET_KEY}
+      Upload__MaxBytes: ${UPLOAD_MAX_BYTES:-15728640}
+      MasterSecretFile: /run/secrets/master_secret
+    depends_on:
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      seaweedfs: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+
+  exam-room:
+    build: {context: ., args: {PROJECT: Easy.ExamRoom}}
+    healthcheck: *app-healthcheck
+    networks: [internal]
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
+      Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Keycloak__MetadataAddress: http://keycloak:8080/realms/easy/.well-known/openid-configuration
+      Keycloak__RequireHttpsMetadata: "false"
+    depends_on:
+      main-api: {condition: service_healthy} # main-api runs the migrations
+
+  notification:
+    build: {context: ., args: {PROJECT: Easy.Notification}}
+    healthcheck: *app-healthcheck
+    networks: [internal]
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
+      Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Keycloak__MetadataAddress: http://keycloak:8080/realms/easy/.well-known/openid-configuration
+      Keycloak__RequireHttpsMetadata: "false"
+      Keycloak__ClientSecret: ${NOTIFICATION_CLIENT_SECRET}
+      Smtp__Host: ${SMTP_HOST:-mailpit}
+      Smtp__Port: ${SMTP_PORT:-1025}
+      Smtp__User: ${SMTP_USER:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__From: ${SMTP_FROM:-easy@localhost}
+      Smtp__EnableSsl: ${SMTP_ENABLE_SSL:-false}
+    depends_on:
+      main-api: {condition: service_healthy}
+      mailpit: {condition: service_started}
+
+  scheduler:
+    build: {context: ., args: {PROJECT: Easy.Scheduler}}
+    healthcheck: *app-healthcheck
+    networks: [internal]
+    environment:
+      ConnectionStrings__Default: Host=postgres;Database=easy;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Rebus__Rabbit: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq
+      Keycloak__Authority: ${KEYCLOAK_AUTHORITY}
+      Keycloak__MetadataAddress: http://keycloak:8080/realms/easy/.well-known/openid-configuration
+      Keycloak__RequireHttpsMetadata: "false"
+      Keycloak__ClientSecret: ${SCHEDULER_CLIENT_SECRET}
+    depends_on:
+      main-api: {condition: service_healthy}
+
+  postgres:
+    image: postgres:17
+    networks: [internal]
+    ports: ["127.0.0.1:5432:5432"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: easy
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d easy"]
+      interval: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    networks: [internal]
+    ports: ["127.0.0.1:15672:15672"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 10
+
+  seaweedfs:
+    # 4.48: SSE-C enforcement verified by SseCSpikeTests (ADR 0002). Signed S3 requests need the admin identity.
+    image: chrislusf/seaweedfs:${SEAWEEDFS_TAG:-4.48}
+    command: server -s3 -dir=/data
+    environment:
+      AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY}
+    networks: [internal]
+    volumes: [seaweedfs-data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9333/cluster/status >/dev/null"]
+      interval: 10s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.0
+    command: start-dev --import-realm
+    networks: [internal]
+    ports: ["127.0.0.1:8081:8080"] # the browser logs in directly (S05)
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+      # Tokens always carry the browser-facing issuer; containers fetch metadata and keys via keycloak:8080.
+      KC_HOSTNAME: http://localhost:8081
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      NOTIFICATION_CLIENT_SECRET: ${NOTIFICATION_CLIENT_SECRET} # placeholders in the realm file
+      SCHEDULER_CLIENT_SECRET: ${SCHEDULER_CLIENT_SECRET}
+    volumes:
+      - ./deploy/keycloak:/opt/keycloak/data/import:ro # dev realm: seeded users admin/admin, examiner/examiner, MFA off
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; grep -q UP <&3"]
+      interval: 10s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:v1.31.5
+    networks: [internal]
+    ports: ["127.0.0.1:8025:8025"]
+
+volumes:
+  postgres-data: {}
+  seaweedfs-data: {}

@@ -1,0 +1,20 @@
+@page "/"
+@inject NavigationManager Navigation
+
+<PageTitle>Easy</PageTitle>
+
+<AuthorizeView>
+    <Authorized>
+        <h1>@context.User.Identity?.Name</h1>
+        <p>Rollen: @string.Join(", ", new[] { "examiner", "admin" }.Where(context.User.IsInRole))</p>
+        @if (context.User.IsInRole("admin"))
+        {
+            <p><a href="import">CSV-Import</a></p>
+        }
+        <button @onclick='() => Navigation.NavigateToLogout("authentication/logout")'>Abmelden</button>
+    </Authorized>
+    <NotAuthorized>
+        <h1>Easy</h1>
+        <a href="authentication/login">Anmelden</a>
+    </NotAuthorized>
+</AuthorizeView>

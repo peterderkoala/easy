@@ -1,0 +1,19 @@
+@page "/authentication/{action}"
+@inject IAccessTokenProvider Tokens
+@inject HttpClient Http
+
+<RemoteAuthenticatorView Action="@Action" OnLogInSucceeded="RegisterExaminer" />
+
+@code {
+    [Parameter] public string? Action { get; set; }
+
+    // Creates or refreshes the Examiner mirror in MainApi (S05).
+    async Task RegisterExaminer(RemoteAuthenticationState _)
+    {
+        if (!(await Tokens.RequestAccessToken()).TryGetToken(out var token))
+            return;
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/me");
+        request.Headers.Authorization = new("Bearer", token.Value);
+        await Http.SendAsync(request);
+    }
+}

@@ -1,0 +1,108 @@
+@page "/import"
+@inject IAccessTokenProvider Tokens
+@inject HttpClient Http
+
+<PageTitle>CSV-Import</PageTitle>
+
+@* S02/S05: admins import a cycle; the page polls the job until it is done. *@
+<AuthorizeView Roles="admin">
+    <Authorized>
+        <h1>CSV-Import</h1>
+        <form @onsubmit="Upload">
+            <label>Prüfungszeitraum
+                <select @bind="type">
+                    <option value="Winter">Winter</option>
+                    <option value="Summer">Sommer</option>
+                </select>
+            </label>
+            <label>Jahr <input type="number" min="2000" max="2100" @bind="year" required /></label>
+            <InputFile OnChange="e => file = e.File" accept=".csv,text/csv" />
+            <button type="submit" disabled="@(file is null || busy)">Importieren</button>
+        </form>
+
+        @if (status is not null)
+        {
+            <p role="status">Status: @status</p>
+        }
+        @if (errors.Count > 0)
+        {
+            <table>
+                <thead><tr><th>Zeile</th><th>Spalte</th><th>Fehler</th></tr></thead>
+                <tbody>
+                    @foreach (var error in errors)
+                    {
+                        <tr><td>@error.Row</td><td>@error.Column</td><td>@error.Message</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </Authorized>
+    <NotAuthorized><p>Nur für Admins.</p></NotAuthorized>
+</AuthorizeView>
+
+@code {
+    record Created(Guid Id);
+    record Job(Guid Id, string Status, Guid? CycleId, List<Error> Errors);
+    record Error(int Row, string Column, string Message);
+
+    string type = "Winter";
+    int year = DateTime.Today.Year;
+    IBrowserFile? file;
+    bool busy;
+    string? status;
+    List<Error> errors = [];
+
+    async Task Upload()
+    {
+        if (file is null || !(await Tokens.RequestAccessToken()).TryGetToken(out var token))
+            return;
+        busy = true;
+        errors = [];
+        try
+        {
+            using var form = new MultipartFormDataContent
+            {
+                { new StringContent(type), "type" },
+                { new StringContent(year.ToString()), "year" },
+                { new StreamContent(file.OpenReadStream(maxAllowedSize: 1024 * 1024)), "file", file.Name },
+            };
+            var response = await Send(new(HttpMethod.Post, "api/imports") { Content = form }, token.Value);
+            if (!response.IsSuccessStatusCode)
+            {
+                status = $"Abgelehnt ({(int)response.StatusCode}): {await response.Content.ReadAsStringAsync()}";
+                return;
+            }
+            Guid id = (await response.Content.ReadFromJsonAsync<Created>())!.Id;
+            // ponytail: polls up to a minute; SignalR progress comes with the hubs of spec 8
+            for (int i = 0; i < 60 && (status = await Poll(id, token.Value)) == "Queued"; i++)
+            {
+                StateHasChanged();
+                await Task.Delay(1000);
+            }
+        }
+        catch (IOException) // OpenReadStream's limit; the server checks the configured limit again
+        {
+            status = "Abgelehnt: Datei größer als 1 MB.";
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    async Task<string> Poll(Guid id, string token)
+    {
+        var response = await Send(new(HttpMethod.Get, $"api/imports/{id}"), token);
+        if (!response.IsSuccessStatusCode)
+            return $"Fehler ({(int)response.StatusCode})";
+        var job = (await response.Content.ReadFromJsonAsync<Job>())!;
+        errors = job.Errors;
+        return job.Status;
+    }
+
+    Task<HttpResponseMessage> Send(HttpRequestMessage request, string token)
+    {
+        request.Headers.Authorization = new("Bearer", token);
+        return Http.SendAsync(request);
+    }
+}
