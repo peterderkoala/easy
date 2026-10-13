@@ -83,6 +83,32 @@ public class Registration
     public DateTimeOffset CreatedAt { get; set; }
 }
 
+public enum ExaminerGradingStatus { Draft, Submitted }
+
+// S06 (issue 37): one examiner's grading of one documentation, criteria in CriterionGrading. Version is Postgres xmin,
+// sent back by the client for optimistic concurrency (issue 40); every save touches UpdatedAt, so it changes.
+public class ExaminerGrading
+{
+    public Guid ParticipantId { get; set; }
+    public Guid ExaminerId { get; set; }
+    public ExaminerGradingStatus Status { get; set; }
+    public int?[] Pages { get; set; } = []; // PDF page per section (GradingMatrix.Sections), plain, not audited (issue 41)
+    public DateTimeOffset UpdatedAt { get; set; }
+    public uint Version { get; set; }
+    public List<CriterionGrading> Criteria { get; set; } = [];
+}
+
+// A row exists once the criterion got points or a remark. Remark is encrypted under the participant key (S02);
+// its audit values are the ciphertext, so they are unreadable after forget (S11).
+public class CriterionGrading
+{
+    public Guid ParticipantId { get; set; }
+    public Guid ExaminerId { get; set; }
+    public required string CriterionKey { get; set; } // GradingMatrix key, e.g. fiae-2026:3.2
+    [Audited] public int? Points { get; set; }
+    [Audited] public byte[]? Remark { get; set; }
+}
+
 public enum OralSessionStatus { Open, Closed }
 
 public class OralSession
@@ -115,6 +141,7 @@ public class AuditEntry
     public Guid? ParticipantId { get; set; }
     public required string Entity { get; set; }
     public required string Field { get; set; }
+    public string? EntityKey { get; set; } // primary key without ParticipantId, e.g. examinerId/fiae-2026:3.2
     public string? Old { get; set; }
     public string? New { get; set; }
     public AuditType Type { get; set; }

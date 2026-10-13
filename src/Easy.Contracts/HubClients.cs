@@ -8,7 +8,10 @@ public interface IGradingClient
 {
     Task RegistrationTaken(Guid participantId, string examiner);
     Task RegistrationReleased(Guid participantId, string examiner);
+    Task ExaminerGradingChanged(Guid participantId, string examiner, ExaminerGradingEvent change);
 }
+
+public enum ExaminerGradingEvent { Draft, Submitted, Withdrawn }
 
 // ExamRoom hub (S07).
 public interface IExamRoomClient

@@ -2,6 +2,7 @@ using Easy.Contracts;
 using Easy.Data;
 using Easy.MainApi.Participants;
 using Easy.Platform;
+using Microsoft.EntityFrameworkCore;
 using Rebus.Bus;
 
 namespace Easy.MainApi.Documents;
@@ -23,9 +24,12 @@ public static class UploadDocument
             if (!pdf.AsSpan().StartsWith("%PDF-"u8))
                 return Results.Problem("Only PDF files.", statusCode: 415);
 
-            var participant = await db.Participants.FindAsync([participantId], ct);
+            // Row lock until commit: a concurrent first submit waits, or this upload sees it.
+            var participant = await db.Participants.FromSql($"SELECT * FROM participants WHERE id = {participantId} FOR UPDATE").SingleOrDefaultAsync(ct);
             if (participant is null || participant.KeyForgotten)
                 return Results.Problem("Unknown participant.", statusCode: 404);
+            if (participant.DocumentationStatus is DocumentationStatus.InProgress or DocumentationStatus.Graded)
+                return Results.Problem("Grading has begun; the documentation can no longer be replaced.", statusCode: 409); // issue 29, case 2
 
             // ponytail: an object written before a failed commit stays orphaned (cleanup out of scope)
             Guid id = Guid.NewGuid();

@@ -45,13 +45,15 @@ public static class SettingsEndpoints
             return Results.NoContent();
         });
 
-        // ponytail: no lock yet; the lock after the first submitted examiner grading comes with spec 13
+        // Locked once any examiner grading in the cycle is submitted (issue 37). The row lock waits for running submits.
         admin.MapPut("/cycles/{id:guid}/weights", async (Guid id, WeightsBody body, EasyDb db) =>
         {
             if (!GradingMatrix.ValidWeights(body.Weights))
                 return Results.Problem("Weights must be five non-negative integers adding up to 100.", statusCode: 400);
-            if (await db.Cycles.FindAsync(id) is not { } cycle)
+            if (await db.Cycles.FromSql($"SELECT * FROM cycles WHERE id = {id} FOR UPDATE").SingleOrDefaultAsync() is not { } cycle)
                 return Results.NotFound();
+            if (await db.ExaminerGradings.AnyAsync(g => g.Status == ExaminerGradingStatus.Submitted && db.Participants.Any(p => p.Id == g.ParticipantId && p.CycleId == id)))
+                return Results.Problem("Weights are fixed once an examiner grading in the cycle is submitted.", statusCode: 409);
             cycle.Weights = body.Weights!;
             await db.SaveChangesAsync();
             return Results.NoContent();

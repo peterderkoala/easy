@@ -22,8 +22,7 @@ public static class RegistrationEndpoints
         {
             // Locks, held until UseOutbox commits: the participant row serializes registrations for one documentation,
             // so the slot choice below sees the others; the shared examiner lock makes a concurrent deactivation wait.
-            string subject = user.FindFirstValue("sub")!;
-            var examiner = await db.Examiners.FromSql($"SELECT * FROM examiners WHERE subject = {subject} FOR SHARE").SingleOrDefaultAsync();
+            var examiner = await LockedCaller(db, user);
             if (examiner is not { Active: true })
                 return Results.Problem("Only active examiners register.", statusCode: 403);
             if (!await db.Participants.FromSql($"SELECT * FROM participants WHERE id = {participantId} FOR UPDATE").AnyAsync(p => !p.KeyForgotten))
@@ -42,13 +41,22 @@ public static class RegistrationEndpoints
             return Results.NoContent();
         });
 
-        // Spec 13 allows this only before submit and discards the draft.
+        // Only before submit (issue 35); discards the draft. The row lock makes a concurrent grading write (shared lock) finish first.
         examiners.MapDelete("/participants/{participantId:guid}/registration", async (Guid participantId, ClaimsPrincipal user, EasyDb db,
             IHubContext<GradingHub, IGradingClient> hub, HttpContext context) =>
         {
-            if (await Caller(db, user) is { } examiner
-                && await db.Registrations.Where(r => r.ParticipantId == participantId && r.ExaminerId == examiner.Id).ExecuteDeleteAsync() > 0)
-                context.AfterCommit(() => hub.Clients.Group(GradingHub.Group(participantId)).RegistrationReleased(participantId, examiner.DisplayName));
+            if (await Caller(db, user) is not { } examiner
+                || await db.Registrations.FromSql($"SELECT * FROM registrations WHERE participant_id = {participantId} AND examiner_id = {examiner.Id} FOR UPDATE")
+                    .SingleOrDefaultAsync() is not { } registration)
+                return Results.NoContent();
+            var grading = db.ExaminerGradings.Where(g => g.ParticipantId == participantId && g.ExaminerId == examiner.Id);
+            if (await grading.AnyAsync(g => g.Status == ExaminerGradingStatus.Submitted))
+                return Results.Problem("A submitted grading stays; withdraw it first.", statusCode: 409);
+            // ponytail: bypasses the audit (S11 decides drafts); load and remove the rows if discarded drafts must be logged
+            await grading.ExecuteDeleteAsync(); // criteria cascade
+            db.Registrations.Remove(registration);
+            await db.SaveChangesAsync();
+            context.AfterCommit(() => hub.Clients.Group(GradingHub.Group(participantId)).RegistrationReleased(participantId, examiner.DisplayName));
             return Results.NoContent();
         });
 
@@ -80,10 +88,17 @@ public static class RegistrationEndpoints
         });
     }
 
-    static Task<Examiner?> Caller(EasyDb db, ClaimsPrincipal user)
+    internal static Task<Examiner?> Caller(EasyDb db, ClaimsPrincipal user)
     {
         string subject = user.FindFirstValue("sub")!;
         return db.Examiners.SingleOrDefaultAsync(e => e.Subject == subject);
+    }
+
+    // Shared row lock until UseOutbox commits: a concurrent deactivation waits and then sees this write.
+    internal static Task<Examiner?> LockedCaller(EasyDb db, ClaimsPrincipal user)
+    {
+        string subject = user.FindFirstValue("sub")!;
+        return db.Examiners.FromSql($"SELECT * FROM examiners WHERE subject = {subject} FOR SHARE").SingleOrDefaultAsync();
     }
 
     // Null after forget (S02).

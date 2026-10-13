@@ -582,7 +582,8 @@ One status per participant, split into four areas:
 - `[DECIDED]` Central, reusable audit component: an own EF Core `SaveChangesInterceptor` in `Platform`, no library. Opt-in `[Audited]` attribute on properties. `actor_id` is the token `sub` (service accounts included), `correlation_id` comes from the ambient context (`CorrelationId.Current`, set by the HTTP middleware and the Rebus incoming step). Writes synchronously in the same transaction as the business change. No separate audit service: it would either be a thin wrapper or, with async messaging, lose transactional safety.
 - `[DECIDED]` Audit log visible to admins only.
 - Logged: every value change on grading-relevant data. Not every keystroke.
-- Skeleton audits only the `Grade` value, always type `initial`. The `correction` logic needs the "closed area" state and comes with the grading feature slice.
+- Audited so far: the `Grade` value, settings (`ConfigEntry`), and per examiner grading the criterion points and remarks (spec 13), always type `initial`. The `correction` logic needs the "closed area" state and comes with the grading feature slice.
+- Discarded drafts (unregister, deactivation) are deleted in bulk and leave no audit rows; marked `ponytail:` in code. Logging them is part of the open scope question below.
 - Append-only: no update or delete path in code, covered by a test. DB-level protection (insert-only role) is not decided.
 - Personal data: audit rows for readable fields store plain old/new values and keep `participant_id`. Rows for encrypted fields (e.g. comments) store old/new encrypted under the participant data key (S02), so they are unreadable after "forget" while the row survives. `participant_id` and point values stay after "forget"; the legal check is open.
 - Entries carry a type (e.g. "correction"). Late changes to closed areas are distinguishable from initial entries.
@@ -651,7 +652,7 @@ Proposed entities, derived from S02–S12. Not a final schema.
 | Document | participant_id, kind (application PDF / project PDF / grading document), storage key, hash, frozen flag | Stored in SeaweedFS (S06) |
 | Signature | examiner_id, drawn image | Stored once in profile (S06) |
 | ConfigEntry | key (PK), value (text) | System-wide settings only: deviation thresholds, default weights (S06, issue 39). Audited |
-| AuditEntry | id, correlation_id, actor_id, entity, field, old, new, type (initial/correction), timestamp | Admin-only read (S11) |
+| AuditEntry | id, correlation_id, actor_id, participant_id, entity, entity_key (primary key without participant_id, e.g. examiner/criterion), field, old, new, type (initial/correction), timestamp | Admin-only read (S11) |
 
 Derived, not stored: overall grade (S04, S09).
 

@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Easy.MainApi.Examiners;
 
 // S05 (issues 35, 40): admins deactivate and reactivate examiners, API only. Deactivating releases the examiner's
-// registrations, the same as unregistering; their places reopen.
+// registrations without a submitted grading, the same as unregistering; their places reopen. Submitted gradings stay and count.
 public static class Deactivation
 {
     public static void MapDeactivation(this WebApplication app)
@@ -20,8 +20,11 @@ public static class Deactivation
             if (await db.Examiners.FindAsync(id) is not { } examiner)
                 return Results.NotFound();
             examiner.Active = false;
-            await db.SaveChangesAsync(); // first: the row lock waits for running registrations, so the read below sees them
-            var released = await db.Registrations.Where(r => r.ExaminerId == id).ToListAsync();
+            await db.SaveChangesAsync(); // first: the row lock waits for running registrations and grading writes, so the reads below see them
+            var released = await db.Registrations.Where(r => r.ExaminerId == id && !db.ExaminerGradings
+                .Any(g => g.ParticipantId == r.ParticipantId && g.ExaminerId == id && g.Status == ExaminerGradingStatus.Submitted)).ToListAsync();
+            // ponytail: bypasses the audit (S11 decides drafts); load and remove the rows if discarded drafts must be logged
+            await db.ExaminerGradings.Where(g => g.ExaminerId == id && g.Status != ExaminerGradingStatus.Submitted).ExecuteDeleteAsync();
             db.Registrations.RemoveRange(released);
             await db.SaveChangesAsync();
             foreach (var r in released)

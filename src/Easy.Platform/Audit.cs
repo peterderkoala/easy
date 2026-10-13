@@ -48,6 +48,7 @@ public sealed class AuditInterceptor(IHttpContextAccessor http) : SaveChangesInt
                     ParticipantId = ParticipantId(entry),
                     Entity = entry.Metadata.ClrType.Name,
                     Field = property.Metadata.Name,
+                    EntityKey = EntityKey(entry),
                     Old = entry.State == EntityState.Added ? null : Format(property.OriginalValue),
                     New = Format(property.CurrentValue),
                     Type = AuditType.Initial, // ponytail: always initial; correction comes with the closed-area state (S11)
@@ -62,5 +63,9 @@ public sealed class AuditInterceptor(IHttpContextAccessor http) : SaveChangesInt
     static Guid? ParticipantId(EntityEntry entry) =>
         entry.Metadata.FindProperty("ParticipantId") is { } p ? (Guid?)entry.Property(p.Name).CurrentValue : null;
 
-    static string? Format(object? value) => Convert.ToString(value, CultureInfo.InvariantCulture);
+    static string EntityKey(EntityEntry entry) =>
+        string.Join('/', entry.Metadata.FindPrimaryKey()!.Properties.Where(p => p.Name != "ParticipantId").Select(p => Format(entry.Property(p.Name).CurrentValue)));
+
+    // Encrypted columns (byte[]) are logged as their ciphertext.
+    static string? Format(object? value) => value is byte[] bytes ? Convert.ToBase64String(bytes) : Convert.ToString(value, CultureInfo.InvariantCulture);
 }

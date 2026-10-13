@@ -19,6 +19,8 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
     public DbSet<ImportJob> ImportJobs => Set<ImportJob>();
     public DbSet<ConfigEntry> ConfigEntries => Set<ConfigEntry>();
     public DbSet<Registration> Registrations => Set<Registration>();
+    public DbSet<ExaminerGrading> ExaminerGradings => Set<ExaminerGrading>();
+    public DbSet<CriterionGrading> CriterionGradings => Set<CriterionGrading>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder) =>
         builder.Properties<Enum>().HaveConversion<string>();
@@ -65,6 +67,15 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
             e.HasOne<Examiner>().WithMany().HasForeignKey(r => r.ExaminerId);
             e.ToTable(t => t.HasCheckConstraint("ck_registrations_slot", "slot IN (1, 2)"));
         });
+        model.Entity<ExaminerGrading>(e =>
+        {
+            e.HasKey(g => new { g.ParticipantId, g.ExaminerId });
+            e.HasOne<Participant>().WithMany().HasForeignKey(g => g.ParticipantId);
+            e.HasOne<Examiner>().WithMany().HasForeignKey(g => g.ExaminerId);
+            e.HasMany(g => g.Criteria).WithOne().HasForeignKey(c => new { c.ParticipantId, c.ExaminerId }).OnDelete(DeleteBehavior.Cascade);
+            e.Property(g => g.Version).IsRowVersion(); // xmin
+        });
+        model.Entity<CriterionGrading>().HasKey(c => new { c.ParticipantId, c.ExaminerId, c.CriterionKey });
         model.Entity<ProcessedEvent>().Property(p => p.ProcessedAt).HasDefaultValueSql("now()");
     }
 }

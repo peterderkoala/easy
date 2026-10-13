@@ -51,6 +51,10 @@ namespace Easy.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("field");
 
+                    b.Property<string>("EntityKey")
+                        .HasColumnType("text")
+                        .HasColumnName("entity_key");
+
                     b.Property<string>("New")
                         .HasColumnType("text")
                         .HasColumnName("new");
@@ -93,6 +97,34 @@ namespace Easy.Data.Migrations
                         .HasName("pk_config_entries");
 
                     b.ToTable("config_entries", (string)null);
+                });
+
+            modelBuilder.Entity("Easy.Data.CriterionGrading", b =>
+                {
+                    b.Property<Guid>("ParticipantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("participant_id");
+
+                    b.Property<Guid>("ExaminerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("examiner_id");
+
+                    b.Property<string>("CriterionKey")
+                        .HasColumnType("text")
+                        .HasColumnName("criterion_key");
+
+                    b.Property<int?>("Points")
+                        .HasColumnType("integer")
+                        .HasColumnName("points");
+
+                    b.Property<byte[]>("Remark")
+                        .HasColumnType("bytea")
+                        .HasColumnName("remark");
+
+                    b.HasKey("ParticipantId", "ExaminerId", "CriterionKey")
+                        .HasName("pk_criterion_gradings");
+
+                    b.ToTable("criterion_gradings", (string)null);
                 });
 
             modelBuilder.Entity("Easy.Data.Cycle", b =>
@@ -221,6 +253,45 @@ namespace Easy.Data.Migrations
                         .HasDatabaseName("ix_examiners_subject");
 
                     b.ToTable("examiners", (string)null);
+                });
+
+            modelBuilder.Entity("Easy.Data.ExaminerGrading", b =>
+                {
+                    b.Property<Guid>("ParticipantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("participant_id");
+
+                    b.Property<Guid>("ExaminerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("examiner_id");
+
+                    b.PrimitiveCollection<int?[]>("Pages")
+                        .IsRequired()
+                        .HasColumnType("integer[]")
+                        .HasColumnName("pages");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("ParticipantId", "ExaminerId")
+                        .HasName("pk_examiner_gradings");
+
+                    b.HasIndex("ExaminerId")
+                        .HasDatabaseName("ix_examiner_gradings_examiner_id");
+
+                    b.ToTable("examiner_gradings", (string)null);
                 });
 
             modelBuilder.Entity("Easy.Data.Grade", b =>
@@ -451,6 +522,16 @@ namespace Easy.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Easy.Data.CriterionGrading", b =>
+                {
+                    b.HasOne("Easy.Data.ExaminerGrading", null)
+                        .WithMany("Criteria")
+                        .HasForeignKey("ParticipantId", "ExaminerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_criterion_gradings_examiner_gradings_participant_id_examine");
+                });
+
             modelBuilder.Entity("Easy.Data.Document", b =>
                 {
                     b.HasOne("Easy.Data.Participant", null)
@@ -459,6 +540,23 @@ namespace Easy.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_documents_participants_participant_id");
+                });
+
+            modelBuilder.Entity("Easy.Data.ExaminerGrading", b =>
+                {
+                    b.HasOne("Easy.Data.Examiner", null)
+                        .WithMany()
+                        .HasForeignKey("ExaminerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_examiner_gradings_examiners_examiner_id");
+
+                    b.HasOne("Easy.Data.Participant", null)
+                        .WithMany()
+                        .HasForeignKey("ParticipantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_examiner_gradings_participants_participant_id");
                 });
 
             modelBuilder.Entity("Easy.Data.Grade", b =>
@@ -551,6 +649,11 @@ namespace Easy.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_registrations_participants_participant_id");
+                });
+
+            modelBuilder.Entity("Easy.Data.ExaminerGrading", b =>
+                {
+                    b.Navigation("Criteria");
                 });
 #pragma warning restore 612, 618
         }
