@@ -62,6 +62,11 @@ public static class RegistrationEndpoints
             return Results.NoContent();
         });
 
+        // S02, S05 (issue 51): the client's way to a cycle's documentation list. Newest first: winter (WS2026/27) after summer of a year.
+        examiners.MapGet("/cycles", async (EasyDb db) =>
+            await db.Cycles.OrderByDescending(c => c.Year).ThenByDescending(c => c.Type == CycleType.Winter)
+                .Select(c => new { c.Id, Type = c.Type.ToString(), c.Year }).ToListAsync());
+
         examiners.MapGet("/cycles/{cycleId:guid}/documentations", async (Guid cycleId, ClaimsPrincipal user, EasyDb db, ParticipantKeys keys) =>
         {
             if (!await db.Cycles.AnyAsync(c => c.Id == cycleId))
@@ -82,7 +87,7 @@ public static class RegistrationEndpoints
                     p.Id,
                     p.DisplayNo,
                     Name = Name(p, keys),
-                    p.DocumentationStatus,
+                    DocumentationStatus = p.DocumentationStatus?.ToString(), // as in the grading read
                     Examiners = own.Select(r => r.DisplayName),
                     Registered = own.Any(r => r.ExaminerId == caller),
                 };

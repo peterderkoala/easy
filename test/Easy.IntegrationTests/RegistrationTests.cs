@@ -59,6 +59,21 @@ public class RegistrationTests(KeycloakFixture keycloak, Infra infra) : IAsyncLi
         Assert.False(Assert.Single(await Documentations(admin)).GetProperty("registered").GetBoolean());
     }
 
+    // Spec 19 (issue 51): the client's way to a cycle's documentation list.
+    [Fact]
+    public async Task Examiner_lists_cycles_newest_first()
+    {
+        await Db(db => { db.Cycles.Add(new() { Type = CycleType.Summer, Year = 2026, Weights = [15, 10, 40, 25, 10] }); return db.SaveChangesAsync(); });
+
+        var response = await Send(HttpMethod.Get, "/api/cycles", examiner);
+
+        response.EnsureSuccessStatusCode();
+        var cycles = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
+        Assert.Equal([("Winter", 2026), ("Summer", 2026)], cycles!.Select(c => (c.GetProperty("type").GetString(), c.GetProperty("year").GetInt32())));
+        Assert.Equal(cycle, cycles![0].GetProperty("id").GetGuid());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Send(HttpMethod.Get, "/api/cycles", null)).StatusCode);
+    }
+
     [Fact]
     public async Task Third_registration_is_rejected()
     {

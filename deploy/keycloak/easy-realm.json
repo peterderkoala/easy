@@ -112,6 +112,17 @@
       "lastName": "Examiner",
       "credentials": [{ "type": "password", "value": "examiner", "temporary": false }],
       "realmRoles": ["examiner"]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000e002",
+      "username": "examiner2",
+      "enabled": true,
+      "email": "examiner2@easy.local",
+      "emailVerified": true,
+      "firstName": "Dev",
+      "lastName": "Examiner Zwei",
+      "credentials": [{ "type": "password", "value": "examiner2", "temporary": false }],
+      "realmRoles": ["examiner"]
     }
   ]
 }

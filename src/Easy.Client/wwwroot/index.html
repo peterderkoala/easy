@@ -6,11 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Easy.Client</title>
     <base href="/" />
-    <link rel="preload" id="webassembly" />
     <link rel="stylesheet" href="css/app.css" />
     <!-- If you add any scoped CSS files, uncomment the following to load them
     <link href="Easy.Client.styles.css" rel="stylesheet" /> -->
-    <script type="importmap"></script>
 </head>
 
 <body>
@@ -28,7 +26,8 @@
         <span class="dismiss">🗙</span>
     </div>
     <script src="_content/Microsoft.AspNetCore.Components.WebAssembly.Authentication/AuthenticationService.js"></script>
-    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+    <!-- ponytail: plain name, no cache-busting fingerprint (index.html placeholders are replaced only in standalone apps, and MainApi hosts this one); serve a rewritten index.html from MainApi if stale scripts after a deploy bite -->
+    <script src="_framework/blazor.webassembly.js"></script>
 </body>
 
 </html>

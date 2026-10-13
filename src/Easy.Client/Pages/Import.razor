@@ -24,6 +24,10 @@
         {
             <p role="status">Status: @status</p>
         }
+        @if (cycleId is not null)
+        {
+            <p><a href="cycles/@cycleId">Dokumentationen des Prüfungszeitraums</a></p>
+        }
         @if (errors.Count > 0)
         {
             <table>
@@ -51,6 +55,7 @@
     bool busy;
     string? status;
     List<Error> errors = [];
+    Guid? cycleId;
 
     async Task Upload()
     {
@@ -97,6 +102,7 @@
             return $"Fehler ({(int)response.StatusCode})";
         var job = (await response.Content.ReadFromJsonAsync<Job>())!;
         errors = job.Errors;
+        cycleId = job.CycleId;
         return job.Status;
     }
 

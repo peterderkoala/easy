@@ -1,7 +1,11 @@
 @page "/"
 @inject NavigationManager Navigation
+@inject IAccessTokenProvider Tokens
+@inject HttpClient Http
 
 <PageTitle>Easy</PageTitle>
+
+@* S05: name and roles; examiners get the cycles (S02), each linking to its documentation list (issue 51). *@
 
 <AuthorizeView>
     <Authorized>
@@ -11,6 +15,16 @@
         {
             <p><a href="import">CSV-Import</a></p>
         }
+        @if (cycles is not null)
+        {
+            <h2>Prüfungszeiträume</h2>
+            <ul>
+                @foreach (var cycle in cycles)
+                {
+                    <li><a href="cycles/@cycle.Id">@(cycle.Type == "Winter" ? "Winter" : "Sommer") @cycle.Year</a></li>
+                }
+            </ul>
+        }
         <button @onclick='() => Navigation.NavigateToLogout("authentication/logout")'>Abmelden</button>
     </Authorized>
     <NotAuthorized>
@@ -18,3 +32,23 @@
         <a href="authentication/login">Anmelden</a>
     </NotAuthorized>
 </AuthorizeView>
+
+@code {
+    record Cycle(Guid Id, string Type, int Year);
+
+    [CascadingParameter] Task<AuthenticationState> Auth { get; set; } = null!;
+
+    List<Cycle>? cycles;
+
+    // Examiners (admins hold the role too) get the cycle list; a failed load just hides it.
+    protected override async Task OnInitializedAsync()
+    {
+        if (!(await Auth).User.IsInRole("examiner") || !(await Tokens.RequestAccessToken()).TryGetToken(out var token))
+            return;
+        var request = new HttpRequestMessage(HttpMethod.Get, "api/cycles");
+        request.Headers.Authorization = new("Bearer", token.Value);
+        var response = await Http.SendAsync(request);
+        if (response.IsSuccessStatusCode)
+            cycles = await response.Content.ReadFromJsonAsync<List<Cycle>>();
+    }
+}
