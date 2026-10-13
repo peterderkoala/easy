@@ -109,6 +109,17 @@ public class CriterionGrading
     [Audited] public byte[]? Remark { get; set; }
 }
 
+// S06 (issue 37): one open thread per documentation, by any examiner. Not blinded, not audited, never counted.
+public class Comment
+{
+    public Guid Id { get; set; }
+    public Guid ParticipantId { get; set; }
+    public Guid ExaminerId { get; set; }
+    public string? SectionKey { get; set; } // GradingMatrix section, e.g. fiae-2026:3; null: general
+    public required byte[] Text { get; set; } // encrypted under the participant key (S02)
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
 public enum OralSessionStatus { Open, Closed }
 
 public class OralSession

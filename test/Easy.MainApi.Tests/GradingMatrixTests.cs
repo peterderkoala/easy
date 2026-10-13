@@ -11,6 +11,7 @@ public class GradingMatrixTests
         Assert.Equal([2, 2, 3, 5, 2], GradingMatrix.Sections.Select(s => s.Criteria.Count));
         Assert.All(GradingMatrix.Sections, s => Assert.Equal(10, s.Criteria.Sum(c => c.Max)));
         Assert.Equal(["fiae-2026:3.1", "fiae-2026:3.2", "fiae-2026:3.3"], GradingMatrix.Sections[2].Criteria.Select(c => c.Key));
+        Assert.All(GradingMatrix.Sections, s => Assert.All(s.Criteria, c => Assert.StartsWith(s.Key + ".", c.Key))); // section key prefixes its criteria
         Assert.Equal([4, 3, 3], GradingMatrix.Sections[2].Criteria.Select(c => c.Max));
         Assert.Equal(14, GradingMatrix.Sections.SelectMany(s => s.Criteria).Select(c => c.Key).Distinct().Count());
     }

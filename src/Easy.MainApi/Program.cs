@@ -45,6 +45,7 @@ app.MapSettings();
 app.MapRegistrations();
 app.MapDeactivation();
 app.MapExaminerGradings();
+app.MapComments();
 // Hub connections outlive the 5-min token; close at expiry and the client reconnects (as ExamRoom).
 app.MapHub<GradingHub>("/hubs/grading", o => o.CloseOnAuthenticationExpiration = true)
     .RequireAuthorization(p => p.RequireRole("examiner")); // admins hold it too

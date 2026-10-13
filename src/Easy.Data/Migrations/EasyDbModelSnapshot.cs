@@ -46,14 +46,14 @@ namespace Easy.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("entity");
 
+                    b.Property<string>("EntityKey")
+                        .HasColumnType("text")
+                        .HasColumnName("entity_key");
+
                     b.Property<string>("Field")
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("field");
-
-                    b.Property<string>("EntityKey")
-                        .HasColumnType("text")
-                        .HasColumnName("entity_key");
 
                     b.Property<string>("New")
                         .HasColumnType("text")
@@ -80,6 +80,46 @@ namespace Easy.Data.Migrations
                         .HasName("pk_audit_entries");
 
                     b.ToTable("audit_entries", (string)null);
+                });
+
+            modelBuilder.Entity("Easy.Data.Comment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ExaminerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("examiner_id");
+
+                    b.Property<Guid>("ParticipantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("participant_id");
+
+                    b.Property<string>("SectionKey")
+                        .HasColumnType("text")
+                        .HasColumnName("section_key");
+
+                    b.Property<byte[]>("Text")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("text");
+
+                    b.HasKey("Id")
+                        .HasName("pk_comments");
+
+                    b.HasIndex("ExaminerId")
+                        .HasDatabaseName("ix_comments_examiner_id");
+
+                    b.HasIndex("ParticipantId")
+                        .HasDatabaseName("ix_comments_participant_id");
+
+                    b.ToTable("comments", (string)null);
                 });
 
             modelBuilder.Entity("Easy.Data.ConfigEntry", b =>
@@ -520,6 +560,23 @@ namespace Easy.Data.Migrations
                         {
                             t.HasCheckConstraint("ck_registrations_slot", "slot IN (1, 2)");
                         });
+                });
+
+            modelBuilder.Entity("Easy.Data.Comment", b =>
+                {
+                    b.HasOne("Easy.Data.Examiner", null)
+                        .WithMany()
+                        .HasForeignKey("ExaminerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_comments_examiners_examiner_id");
+
+                    b.HasOne("Easy.Data.Participant", null)
+                        .WithMany()
+                        .HasForeignKey("ParticipantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_comments_participants_participant_id");
                 });
 
             modelBuilder.Entity("Easy.Data.CriterionGrading", b =>

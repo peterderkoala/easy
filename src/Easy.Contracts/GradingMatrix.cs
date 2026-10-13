@@ -5,28 +5,28 @@ namespace Easy.Contracts;
 public static class GradingMatrix
 {
     public record Criterion(string Key, string Name, int Max);
-    public record Section(string Name, IReadOnlyList<Criterion> Criteria);
+    public record Section(string Key, string Name, IReadOnlyList<Criterion> Criteria); // Key: versioned like criteria, e.g. fiae-2026:3
 
     // Source: docs/samples/bewertungsmatrix/bewertungsmatrix-merged.md. Each section's criteria add up to 10.
     public static readonly IReadOnlyList<Section> Sections =
     [
-        new("Ausgangssituation", [
+        new("fiae-2026:1", "Ausgangssituation", [
             new("fiae-2026:1.1", "Projektziel, Teilaufgaben, Kundenwünsche", 5),
             new("fiae-2026:1.2", "Projektumfeld, Projektschnittstellen", 5)]),
-        new("Ressourcen- und Ablaufplanung", [
+        new("fiae-2026:2", "Ressourcen- und Ablaufplanung", [
             new("fiae-2026:2.1", "Ablaufplanung", 5),
             new("fiae-2026:2.2", "Personal-, Sachmittel-, Terminplanung und ggf. Kostenplanung", 5)]),
-        new("Durchführung und Auftragsbearbeitung", [
+        new("fiae-2026:3", "Durchführung und Auftragsbearbeitung", [
             new("fiae-2026:3.1", "Prozessschritte, Vorgehensweise, Qualitätssicherung", 4),
             new("fiae-2026:3.2", "Abweichung, Anpassung, Entscheidung", 3),
             new("fiae-2026:3.3", "Komplexität der Aufgabenstellung", 3)]),
-        new("Projektergebnisse", [
+        new("fiae-2026:4", "Projektergebnisse", [
             new("fiae-2026:4.1", "Kommentierter Quellcode", 2),
             new("fiae-2026:4.2", "Soll-Ist-Vergleich", 2),
             new("fiae-2026:4.3", "Qualitätskontrolle", 2),
             new("fiae-2026:4.4", "Abweichungen, Anpassungen", 2),
             new("fiae-2026:4.5", "Benutzerdokumentation", 2)]),
-        new("Gestaltung der Dokumentation", [
+        new("fiae-2026:5", "Gestaltung der Dokumentation", [
             new("fiae-2026:5.1", "Äußere Form", 5),
             new("fiae-2026:5.2", "Inhaltliche Form", 5)]),
     ];

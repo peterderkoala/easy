@@ -21,6 +21,7 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
     public DbSet<Registration> Registrations => Set<Registration>();
     public DbSet<ExaminerGrading> ExaminerGradings => Set<ExaminerGrading>();
     public DbSet<CriterionGrading> CriterionGradings => Set<CriterionGrading>();
+    public DbSet<Comment> Comments => Set<Comment>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder) =>
         builder.Properties<Enum>().HaveConversion<string>();
@@ -76,6 +77,11 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
             e.Property(g => g.Version).IsRowVersion(); // xmin
         });
         model.Entity<CriterionGrading>().HasKey(c => new { c.ParticipantId, c.ExaminerId, c.CriterionKey });
+        model.Entity<Comment>(e =>
+        {
+            e.HasOne<Participant>().WithMany().HasForeignKey(c => c.ParticipantId);
+            e.HasOne<Examiner>().WithMany().HasForeignKey(c => c.ExaminerId);
+        });
         model.Entity<ProcessedEvent>().Property(p => p.ProcessedAt).HasDefaultValueSql("now()");
     }
 }

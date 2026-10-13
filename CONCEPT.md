@@ -644,7 +644,7 @@ Proposed entities, derived from S02–S12. Not a final schema.
 | Registration | participant_id, examiner_id | Documentation pair (2 examiners) |
 | Grade | participant_id, source (written/documentation/oral/interim), value, updated_by, updated_at | Current value only, no history (S09). `source` enum, unique on `(participant_id, source)`, `value` numeric(5,1) non-negative; maximum per source not enforced in the skeleton |
 | DocumentationScore | participant_id, examiner_id, section, points | Per-examiner; hidden from partner until summary view (S06) |
-| Comment | participant_id, section (optional), author_id, text (encrypted) | Open discussion on a documentation, never counted (S06, issue 37) |
+| Comment | id, participant_id, section_key (optional), examiner_id (the author), text (encrypted), created_at | Open discussion on a documentation, never counted (S06, issue 37) |
 | OralSession | id, participant_id, status (open/closed) | 3 main examiners; joined examiners; closed = final. `[DECIDED]` One session per participant (so per cycle), unique on `participant_id`; a second create is rejected. Skeleton: only these three fields, created by MainApi, read by ExamRoom |
 | OralGrade | session_id, examiner_id, criteria values, counted flag | Counted only for main examiners |
 | TextTemplate | id, category (rejection/condition), text, created_by | Fixed plus examiner-added (S03) |
