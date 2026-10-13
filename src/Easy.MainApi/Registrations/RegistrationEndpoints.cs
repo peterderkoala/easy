@@ -49,6 +49,8 @@ public static class RegistrationEndpoints
                 || await db.Registrations.FromSql($"SELECT * FROM registrations WHERE participant_id = {participantId} AND examiner_id = {examiner.Id} FOR UPDATE")
                     .SingleOrDefaultAsync() is not { } registration)
                 return Results.NoContent();
+            if (await db.Participants.AnyAsync(p => p.Id == participantId && p.DocumentationStatus == DocumentationStatus.Graded))
+                return Results.Problem("The documentation is graded; its grading is final.", statusCode: 409);
             var grading = db.ExaminerGradings.Where(g => g.ParticipantId == participantId && g.ExaminerId == examiner.Id);
             if (await grading.AnyAsync(g => g.Status == ExaminerGradingStatus.Submitted))
                 return Results.Problem("A submitted grading stays; withdraw it first.", statusCode: 409);

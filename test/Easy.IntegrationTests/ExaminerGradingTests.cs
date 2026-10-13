@@ -422,7 +422,257 @@ public class ExaminerGradingTests(KeycloakFixture keycloak, Infra infra) : IAsyn
         Assert.Equal((participant, "Dev Admin"), await opened.Task.WaitAsync(TimeSpan.FromSeconds(10)));
     }
 
+    // Spec 16 (issue 48). Weights 15/10/40/25/10, thresholds 4 (section) and 10 (total), seeded by the migration.
+
+    [Fact]
+    public async Task Second_submit_within_thresholds_grades_and_stores_score()
+    {
+        using var consumer = await EventConsumer<GradeChanged>.Start(infra);
+        await Pair();
+        await SubmitSections(examiner, 5, 5, 5, 5, 5); // 50.0
+        Assert.Equal("InProgress", (await Read(examiner)).GetProperty("status").GetString());
+
+        await SubmitSections(admin, 6, 5, 5, 5, 5); // 51.5
+
+        Assert.Equal("Graded", (await Read(examiner)).GetProperty("status").GetString());
+        var grade = await Db(db => db.Grades.SingleAsync(g => g.ParticipantId == participant && g.Source == GradeSource.Documentation));
+        Assert.Equal(50.8m, grade.Value); // 50.75
+        Assert.Single(await Db(db => db.AuditEntries.Where(e => e.Entity == nameof(Grade)).ToListAsync()));
+        var delivery = await consumer.Next(); // through the outbox
+        Assert.Equal((participant, "Documentation"), (delivery.Event.ParticipantId, delivery.Event.Source));
+    }
+
+    [Fact]
+    public async Task Score_rounds_half_away_from_zero()
+    {
+        await Pair();
+        await SubmitSections(examiner, 6, 5, 5, 5, 1); // 47.5
+        await SubmitSections(admin, 5, 5, 5, 5, 0); // 45.0
+
+        Assert.Equal(46.3m, await Score()); // 46.25
+    }
+
+    [Fact]
+    public async Task Section_gap_of_five_is_a_deviation_and_four_is_not()
+    {
+        await Pair();
+        await SubmitSections(examiner, 5, 0, 5, 5, 5);
+        await SubmitSections(admin, 5, 5, 5, 5, 5); // section 2: gap 5, total gap 5
+
+        Assert.Equal(["fiae-2026:2"], await DeviatingSections());
+        Assert.Equal("InProgress", (await Read(examiner)).GetProperty("status").GetString());
+
+        await Withdraw(admin);
+        await SubmitSections(admin, 5, 4, 5, 5, 5, version: await Version(admin)); // gap 4
+
+        Assert.Null(await Db(db => db.Deviations.SingleOrDefaultAsync()));
+        Assert.Equal("Graded", (await Read(examiner)).GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Total_gap_above_ten_is_a_deviation_and_ten_is_not()
+    {
+        await Pair();
+        await SubmitSections(examiner, 5, 5, 5, 5, 5);
+        await SubmitSections(admin, 5, 8, 7, 5, 5); // total gap 3 + 8 = 11, sections within
+
+        Assert.Equal(["total"], await DeviatingSections());
+
+        await Withdraw(admin);
+        await SubmitSections(admin, 5, 5, 7, 5, 7, version: await Version(admin)); // 8 + 2 = 10
+
+        Assert.Equal("Graded", (await Read(examiner)).GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Deviation_stores_sections_and_thresholds_used()
+    {
+        await Pair();
+        await SubmitSections(examiner, 5, 5, 0, 5, 5);
+        await SubmitSections(admin, 5, 5, 5, 5, 5); // section 3: gap 5, total gap 20
+
+        var deviation = await Db(db => db.Deviations.SingleAsync());
+        Assert.Equal(["fiae-2026:3", "total"], deviation.Sections);
+        Assert.Equal((participant, 4, 10), (deviation.ParticipantId, deviation.SectionThreshold, deviation.TotalThreshold));
+    }
+
+    [Fact]
+    public async Task Threshold_change_does_not_alter_stored_deviation()
+    {
+        await Pair();
+        await SubmitSections(examiner, 5, 5, 0, 5, 5);
+        await SubmitSections(admin, 5, 5, 5, 5, 5);
+
+        var settings = await Send(HttpMethod.Put, "/api/settings", admin, new { deviationSectionPoints = 8, deviationTotalPoints = 30, defaultWeights = new[] { 15, 10, 40, 25, 10 } });
+        Assert.Equal(HttpStatusCode.NoContent, settings.StatusCode);
+
+        var deviation = await Db(db => db.Deviations.SingleAsync());
+        Assert.Equal(["fiae-2026:3", "total"], deviation.Sections);
+        Assert.Equal((4, 10), (deviation.SectionThreshold, deviation.TotalThreshold));
+    }
+
+    [Fact]
+    public async Task Withdraw_clears_deviation_and_resubmit_rechecks()
+    {
+        await Pair();
+        await SubmitSections(examiner, 5, 5, 0, 5, 5);
+        await SubmitSections(admin, 5, 5, 5, 5, 5);
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, Accept, examiner)).StatusCode);
+
+        await Withdraw(admin);
+        Assert.Null(await Db(db => db.Deviations.SingleOrDefaultAsync())); // acceptances go with it
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, $"{Mine}/submit", admin)).StatusCode); // unchanged: same deviation again
+        var deviation = await Db(db => db.Deviations.SingleAsync());
+        Assert.Equal(["fiae-2026:3", "total"], deviation.Sections);
+        Assert.Empty(deviation.AcceptedBy);
+    }
+
+    [Fact]
+    public async Task Both_accepting_the_deviation_grades_with_average_of_two()
+    {
+        await Pair();
+        await SubmitSections(examiner, 5, 5, 0, 5, 5); // 30.0
+        await SubmitSections(admin, 5, 5, 5, 5, 5); // 50.0
+        var events = new List<string>();
+        var graded = new TaskCompletionSource();
+        await using var hub = Hub(examiner);
+        hub.On<Guid, string>(nameof(IGradingClient.DeviationAccepted), (_, name) => { lock (events) events.Add($"accepted {name}"); });
+        hub.On<Guid>(nameof(IGradingClient.Graded), _ => { lock (events) events.Add("graded"); graded.TrySetResult(); });
+        await hub.StartAsync();
+        await hub.InvokeAsync("JoinDocumentation", participant);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, Accept, examiner)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, Accept, examiner)).StatusCode); // twice: no change
+        Assert.Equal("InProgress", (await Read(examiner)).GetProperty("status").GetString());
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, Accept, admin)).StatusCode);
+
+        Assert.Equal("Graded", (await Read(examiner)).GetProperty("status").GetString());
+        Assert.Equal(40.0m, await Score());
+        await graded.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(["accepted Dev Examiner", "accepted Dev Admin", "graded"], events);
+    }
+
+    [Fact]
+    public async Task Deviation_notice_hides_gaps_from_examiners_and_shows_them_to_admins()
+    {
+        // The admin must not grade here: an examiner from outside Keycloak takes the second place, submitted (S06).
+        await Register(examiner);
+        await SeedSubmittedGrader(5, 5, 5, 5, 5);
+        var events = new List<string>();
+        var deviated = new TaskCompletionSource();
+        await using var hub = Hub(examiner);
+        foreach (var method in typeof(IGradingClient).GetMethods())
+            hub.On(method.Name, method.GetParameters().Select(p => p.ParameterType).ToArray(), args =>
+            {
+                lock (events) events.Add($"{method.Name}{JsonSerializer.Serialize(args)}");
+                if (method.Name == nameof(IGradingClient.DeviationFound)) deviated.TrySetResult();
+                return Task.CompletedTask;
+            });
+        await hub.StartAsync();
+        await hub.InvokeAsync("JoinDocumentation", participant);
+
+        await SubmitSections(examiner, 5, 5, 0, 5, 5);
+        await deviated.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var mine = (await Read(examiner)).GetProperty("deviation");
+        Assert.Equal(["fiae-2026:3", "total"], mine.GetProperty("sections").EnumerateArray().Select(s => s.GetString()));
+        Assert.Equal(JsonValueKind.Null, mine.GetProperty("gaps").ValueKind);
+        var admins = (await Read(admin)).GetProperty("deviation");
+        Assert.Equal(5, admins.GetProperty("gaps").GetProperty("fiae-2026:3").GetInt32());
+        Assert.Equal(20m, admins.GetProperty("gaps").GetProperty("total").GetDecimal());
+        Assert.Equal($"DeviationFound[\"{participant}\"]", events.Single(e => e.StartsWith(nameof(IGradingClient.DeviationFound)))); // no sections, no numbers
+        Assert.DoesNotContain(events, e => e.Contains("fiae-2026"));
+    }
+
+    [Fact]
+    public async Task Graded_documentation_rejects_every_write()
+    {
+        await Pair();
+        await SubmitSections(examiner, 5, 5, 5, 5, 5);
+        await SubmitSections(admin, 5, 5, 5, 5, 5);
+        Assert.Equal("Graded", (await Read(examiner)).GetProperty("status").GetString());
+
+        Assert.Equal(HttpStatusCode.Conflict, (await Save(examiner, Complete(), version: await Version(examiner))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(HttpMethod.Post, $"{Mine}/submit", examiner)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Withdraw(examiner)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(HttpMethod.Delete, Registration, examiner)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(HttpMethod.Post, Accept, examiner)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(HttpMethod.Post, SummaryView, examiner)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(HttpMethod.Post, $"/api/participants/{participant}/comments", examiner, new { text = "Zu spät" })).StatusCode);
+        Assert.Equal("Submitted", Own(await Read(examiner)).GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Graded_unblinds_both_examiners()
+    {
+        await Pair();
+        await SubmitSections(examiner, 5, 5, 5, 5, 5);
+        await SubmitSections(admin, 6, 5, 5, 5, 5);
+
+        Assert.Equal(0, Foreign(await Read(admin)).GetProperty("points").GetProperty("fiae-2026:1.2").GetInt32()); // examiner: 5 + 0
+        Assert.Equal(1, Foreign(await Read(examiner)).GetProperty("points").GetProperty("fiae-2026:1.2").GetInt32()); // admin: 5 + 1
+    }
+
     record Grading(Dictionary<string, int> Points, Dictionary<string, string> Remarks);
+
+    string Accept => $"/api/participants/{participant}/grading/deviation/accept";
+
+    async Task Pair()
+    {
+        await Register(examiner);
+        await Register(admin);
+    }
+
+    // Section points (0 to 10) spread over the section's criteria, first criteria first; remarks long enough to submit.
+    static Grading Sections(params int[] points)
+    {
+        var grading = new Grading([], []);
+        foreach (var (section, total) in GradingMatrix.Sections.Zip(points))
+        {
+            int left = total;
+            foreach (var c in section.Criteria)
+            {
+                grading.Points[c.Key] = Math.Min(c.Max, left);
+                grading.Remarks[c.Key] = "Nachvollziehbar begründet.";
+                left -= grading.Points[c.Key];
+            }
+        }
+        return grading;
+    }
+
+    async Task SubmitSections(string token, int s1, int s2, int s3, int s4, int s5, uint? version = null)
+    {
+        (await Save(token, Sections(s1, s2, s3, s4, s5), version: version)).EnsureSuccessStatusCode();
+        (await Send(HttpMethod.Post, $"{Mine}/submit", token)).EnsureSuccessStatusCode();
+    }
+
+    Task<HttpResponseMessage> Withdraw(string token) => Send(HttpMethod.Post, $"{Mine}/withdraw", token);
+
+    Task<decimal> Score() => Db(db => db.Grades.Where(g => g.ParticipantId == participant && g.Source == GradeSource.Documentation).Select(g => g.Value).SingleAsync());
+
+    Task<string[]> DeviatingSections() => Db(db => db.Deviations.Select(d => d.Sections).SingleAsync());
+
+    // A second registered examiner with a submitted grading, straight in the DB (Keycloak has two users only). Criterion
+    // rows by SQL: the audit interceptor needs an HTTP request's actor.
+    async Task SeedSubmittedGrader(params int[] sections)
+    {
+        var id = Guid.NewGuid();
+        await Db(async db =>
+        {
+            db.Examiners.Add(new() { Id = id, Subject = $"seed-{id}", DisplayName = "Dritte Person", Email = $"{id}@easy.local" });
+            db.Registrations.Add(new() { ParticipantId = participant, ExaminerId = id, Slot = 2, CreatedAt = DateTimeOffset.UtcNow });
+            db.ExaminerGradings.Add(new()
+            {
+                ParticipantId = participant, ExaminerId = id, Status = ExaminerGradingStatus.Submitted, Pages = new int?[5], UpdatedAt = DateTimeOffset.UtcNow,
+            });
+            db.Participants.Single(p => p.Id == participant).DocumentationStatus = DocumentationStatus.InProgress;
+            await db.SaveChangesAsync();
+            foreach (var (key, points) in Sections(sections).Points)
+                await db.Database.ExecuteSqlAsync($"INSERT INTO criterion_gradings (participant_id, examiner_id, criterion_key, points) VALUES ({participant}, {id}, {key}, {points})");
+            return 0;
+        });
+    }
 
     HubConnection Hub(string token) => new HubConnectionBuilder()
         .WithUrl(new Uri(mainApi.Server.BaseAddress, "hubs/grading"), o =>

@@ -7,6 +7,7 @@ using Easy.Platform;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Rebus.Bus;
 
 namespace Easy.MainApi.Grading;
 
@@ -15,7 +16,8 @@ namespace Easy.MainApi.Grading;
 public static class ExaminerGradingEndpoints
 {
     public const int MinRemarkLength = 10;
-    const string NotGrader = "Only active registered examiners grade.", Stale = "The grading changed meanwhile; reload it.";
+    const string NotGrader = "Only active registered examiners grade.", GradedFinal = "The documentation is graded; its grading is final.",
+        Stale = "The grading changed meanwhile; reload it.";
 
     // The whole draft: criteria missing here are cleared. Version is the one last read; null for a first save.
     public record Body(uint? Version, Dictionary<string, int>? Points, Dictionary<string, string?>? Remarks, int?[]? Pages);
@@ -40,10 +42,23 @@ public static class ExaminerGradingEndpoints
             var graders = registered.Select(r => r.ExaminerId).ToList();
             bool summaryView = await db.SummaryViews.AnyAsync(v => v.ParticipantId == participantId && v.ExaminerId == viewer);
             using var key = participant.KeyForgotten ? null : keys.Open(participant);
+            // Deviation notice (issue 39): graders see the section names and/or "total", never gaps or direction; an
+            // admin not grading sees the gaps too, since MayRead gives them both gradings; everyone else only that there is one.
+            var deviation = await db.Deviations.FindAsync(participantId);
+            bool grader = viewer is { } id && graders.Contains(id), adminView = !grader && user.IsInRole("admin");
+            var pair = registered.Select(r => gradings.GetValueOrDefault(r.ExaminerId)).OfType<ExaminerGrading>().ToList();
+            bool gaps = !grader && pair.Count == 2 && pair.All(g => MayRead(viewer, user.IsInRole("admin"), g.ExaminerId, graders, participant.DocumentationStatus, summaryView));
 
             return Results.Ok(new
             {
                 Status = participant.DocumentationStatus?.ToString(),
+                Deviation = deviation is null ? null : new
+                {
+                    Sections = grader || adminView ? deviation.Sections : null,
+                    Gaps = gaps ? DocumentationScore.Gaps(pair[0], pair[1], await DocumentationScore.Weights(db, participant)) : null,
+                    Thresholds = adminView ? new { Section = deviation.SectionThreshold, Total = deviation.TotalThreshold } : null,
+                    AcceptedBy = grader || adminView ? registered.Where(r => deviation.AcceptedBy.Contains(r.ExaminerId)).Select(r => r.DisplayName).ToList() : null,
+                },
                 Gradings = registered.Select(r =>
                 {
                     var g = gradings.GetValueOrDefault(r.ExaminerId);
@@ -55,7 +70,7 @@ public static class ExaminerGradingEndpoints
                         Status = g?.Status.ToString(),
                         Version = mine ? g?.Version : null,
                         g?.Pages, // not blinded (issue 41)
-                        Points = readable ? g!.Criteria.Where(c => c.Points is not null).ToDictionary(c => c.CriterionKey, c => c.Points!.Value) : null,
+                        Points = readable ? DocumentationScore.Points(g!) : null,
                         Remarks = readable && key is not null ? g!.Criteria.Where(c => c.Remark is not null).ToDictionary(c => c.CriterionKey, c => key.Decrypt(c.Remark!)) : null,
                     };
                 }).ToList(), // decrypts now: the key is zeroed when this returns
@@ -72,6 +87,8 @@ public static class ExaminerGradingEndpoints
             var participant = (await db.Participants.FindAsync(participantId))!; // registered, so it exists
             if (participant.KeyForgotten)
                 return Results.Problem("Unknown participant.", statusCode: 404);
+            if (participant.DocumentationStatus is DocumentationStatus.Graded)
+                return Results.Problem(GradedFinal, statusCode: 409);
 
             var grading = await Mine(db, participantId, examiner).Include(g => g.Criteria).SingleOrDefaultAsync();
             if (grading?.Version != body.Version) // also: no row but a version, or a row but none
@@ -109,16 +126,18 @@ public static class ExaminerGradingEndpoints
             return Results.Ok(new { grading.Version });
         });
 
-        grading.MapPost("/mine/submit", async (Guid participantId, ClaimsPrincipal user, EasyDb db, ParticipantKeys keys,
+        grading.MapPost("/mine/submit", async (Guid participantId, ClaimsPrincipal user, EasyDb db, ParticipantKeys keys, IBus bus,
             IHubContext<GradingHub, IGradingClient> hub, HttpContext context) =>
         {
             if (await Grader(db, user, participantId) is not { } examiner)
                 return Results.Problem(NotGrader, statusCode: 403);
             // Locks until UseOutbox commits. Shared cycle lock: a concurrent weights change waits and then sees this
             // submit (S06, issue 37). Participant row lock: a concurrent upload waits and then sees in progress, or this
-            // submit waits for the upload.
+            // submit waits for the upload; a concurrent second submit, withdraw or accept waits, so the check sees both.
             await db.Database.ExecuteSqlAsync($"SELECT 1 FROM cycles WHERE id = (SELECT cycle_id FROM participants WHERE id = {participantId}) FOR SHARE");
             var participant = await db.Participants.FromSql($"SELECT * FROM participants WHERE id = {participantId} FOR UPDATE").SingleAsync();
+            if (participant.DocumentationStatus is DocumentationStatus.Graded)
+                return Results.Problem(GradedFinal, statusCode: 409);
             var grading = await Mine(db, participantId, examiner).Include(g => g.Criteria).SingleOrDefaultAsync();
             if (grading?.Status == ExaminerGradingStatus.Submitted)
                 return Results.NoContent();
@@ -134,8 +153,10 @@ public static class ExaminerGradingEndpoints
             grading.UpdatedAt = DateTimeOffset.UtcNow;
             if (participant.DocumentationStatus is DocumentationStatus.Submitted)
                 participant.DocumentationStatus = DocumentationStatus.InProgress; // the first submit: grading has begun (issue 40)
-            await db.SaveChangesAsync();
+            await db.SaveChangesAsync(); // first: the check queries submitted gradings
             Notify(context, hub, participantId, examiner, ExaminerGradingEvent.Submitted);
+            await DocumentationScore.Check(db, bus, hub, context, participant, examiner);
+            await db.SaveChangesAsync();
             return Results.NoContent();
         });
 
@@ -165,15 +186,44 @@ public static class ExaminerGradingEndpoints
             return Results.NoContent();
         }).RequireAuthorization(p => p.RequireRole("examiner")); // admins hold it too
 
-        // The documentation stays in progress.
+        // Either registered examiner accepts the deviation; when both have, graded with the average of two (issue 40).
+        grading.MapPost("/deviation/accept", async (Guid participantId, ClaimsPrincipal user, EasyDb db, IBus bus,
+            IHubContext<GradingHub, IGradingClient> hub, HttpContext context) =>
+        {
+            if (await Grader(db, user, participantId) is not { } examiner)
+                return Results.Problem(NotGrader, statusCode: 403);
+            // Participant row lock until UseOutbox commits: serializes with submit and withdraw.
+            var participant = await db.Participants.FromSql($"SELECT * FROM participants WHERE id = {participantId} FOR UPDATE").SingleAsync();
+            if (participant.DocumentationStatus is DocumentationStatus.Graded)
+                return Results.Problem(GradedFinal, statusCode: 409);
+            if (await db.Deviations.FindAsync(participantId) is not { } deviation)
+                return Results.Problem("There is no deviation to accept.", statusCode: 409);
+            if (deviation.AcceptedBy.Contains(examiner.Id))
+                return Results.NoContent();
+
+            deviation.AcceptedBy = [.. deviation.AcceptedBy, examiner.Id];
+            context.AfterCommit(() => hub.Clients.Group(GradingHub.Group(participantId)).DeviationAccepted(participantId, examiner.DisplayName));
+            if (deviation.AcceptedBy.Count == 2) // both registered examiners
+                await DocumentationScore.Grade(db, bus, hub, context, participant, examiner, await DocumentationScore.Submitted(db, participantId));
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
+        // The documentation stays in progress. Graded is final.
         grading.MapPost("/mine/withdraw", async (Guid participantId, ClaimsPrincipal user, EasyDb db,
             IHubContext<GradingHub, IGradingClient> hub, HttpContext context) =>
         {
             if (await Grader(db, user, participantId) is not { } examiner)
                 return Results.Problem(NotGrader, statusCode: 403);
+            // Participant row lock until UseOutbox commits: serializes with a submit's "both submitted" check and with accept.
+            var participant = await db.Participants.FromSql($"SELECT * FROM participants WHERE id = {participantId} FOR UPDATE").SingleAsync();
+            if (participant.DocumentationStatus is DocumentationStatus.Graded)
+                return Results.Problem(GradedFinal, statusCode: 409);
             var grading = await Mine(db, participantId, examiner).SingleOrDefaultAsync();
             if (grading?.Status != ExaminerGradingStatus.Submitted)
                 return Results.NoContent();
+            if (await db.Deviations.FindAsync(participantId) is { } deviation)
+                db.Deviations.Remove(deviation); // acceptances go with it; the next "both submitted" checks again (issue 39)
             grading.Status = ExaminerGradingStatus.Draft;
             grading.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync();

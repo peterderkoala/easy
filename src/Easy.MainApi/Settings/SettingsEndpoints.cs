@@ -14,6 +14,13 @@ public static class SettingsEndpoints
 
     static int[] ParseWeights(string value) => value.Split('/').Select(w => int.Parse(w, CultureInfo.InvariantCulture)).ToArray();
 
+    public static async Task<(int Section, int Total)> DeviationThresholds(EasyDb db)
+    {
+        var values = await db.ConfigEntries.Where(c => c.Key == ConfigEntry.DeviationSectionPoints || c.Key == ConfigEntry.DeviationTotalPoints)
+            .ToDictionaryAsync(c => c.Key, c => int.Parse(c.Value, CultureInfo.InvariantCulture));
+        return (values[ConfigEntry.DeviationSectionPoints], values[ConfigEntry.DeviationTotalPoints]);
+    }
+
     public static async Task<int[]> DefaultWeights(EasyDb db) =>
         ParseWeights((await db.ConfigEntries.SingleAsync(c => c.Key == ConfigEntry.DefaultWeights)).Value);
 

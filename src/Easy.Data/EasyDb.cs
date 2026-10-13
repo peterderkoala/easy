@@ -23,6 +23,7 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
     public DbSet<CriterionGrading> CriterionGradings => Set<CriterionGrading>();
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<SummaryView> SummaryViews => Set<SummaryView>();
+    public DbSet<Deviation> Deviations => Set<Deviation>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder) =>
         builder.Properties<Enum>().HaveConversion<string>();
@@ -78,6 +79,11 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
             e.Property(g => g.Version).IsRowVersion(); // xmin
         });
         model.Entity<CriterionGrading>().HasKey(c => new { c.ParticipantId, c.ExaminerId, c.CriterionKey });
+        model.Entity<Deviation>(e =>
+        {
+            e.HasKey(d => d.ParticipantId);
+            e.HasOne<Participant>().WithOne().HasForeignKey<Deviation>(d => d.ParticipantId);
+        });
         model.Entity<SummaryView>(e =>
         {
             e.HasKey(v => new { v.ParticipantId, v.ExaminerId });

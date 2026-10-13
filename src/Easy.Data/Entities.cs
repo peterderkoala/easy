@@ -109,6 +109,18 @@ public class CriterionGrading
     [Audited] public byte[]? Remark { get; set; }
 }
 
+// S06 (issue 39): the deviation found when both registered examiners submitted, with the thresholds used, so a later
+// threshold edit changes nothing. A withdraw deletes it, acceptances included.
+public class Deviation
+{
+    public Guid ParticipantId { get; set; }
+    public string[] Sections { get; set; } = []; // GradingMatrix section keys and/or "total"
+    public int SectionThreshold { get; set; }
+    public int TotalThreshold { get; set; }
+    public List<Guid> AcceptedBy { get; set; } = []; // registered examiners who accept it (issue 40)
+    public DateTimeOffset FoundAt { get; set; }
+}
+
 // S06 (issue 38): an examiner opened the summary view of a documentation. It unblinds only them, for good (no closing).
 // Opening is audited through OpenedAt.
 public class SummaryView
