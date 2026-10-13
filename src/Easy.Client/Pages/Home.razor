@@ -13,7 +13,7 @@
         <p>Rollen: @string.Join(", ", new[] { "examiner", "admin" }.Where(context.User.IsInRole))</p>
         @if (context.User.IsInRole("admin"))
         {
-            <p><a href="import">CSV-Import</a></p>
+            <p><a href="import">CSV-Import</a> · <a href="settings">Einstellungen</a></p>
         }
         @if (cycles is not null)
         {

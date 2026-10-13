@@ -71,6 +71,7 @@ public class RegistrationTests(KeycloakFixture keycloak, Infra infra) : IAsyncLi
         var cycles = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
         Assert.Equal([("Winter", 2026), ("Summer", 2026)], cycles!.Select(c => (c.GetProperty("type").GetString(), c.GetProperty("year").GetInt32())));
         Assert.Equal(cycle, cycles![0].GetProperty("id").GetGuid());
+        Assert.Equal([15, 10, 40, 25, 10], cycles[1].GetProperty("weights").EnumerateArray().Select(w => w.GetInt32())); // Spec 21: the settings page
         Assert.Equal(HttpStatusCode.Unauthorized, (await Send(HttpMethod.Get, "/api/cycles", null)).StatusCode);
     }
 

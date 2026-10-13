@@ -66,10 +66,10 @@ public static class RegistrationEndpoints
         examiners.MapGet("/examiners", async (EasyDb db) =>
             await db.Examiners.Where(e => e.Active).OrderBy(e => e.DisplayName).Select(e => new { e.Id, e.DisplayName }).ToListAsync());
 
-        // S02, S05 (issue 51): the client's way to a cycle's documentation list. Newest first: winter (WS2026/27) after summer of a year.
+        // S02, S05 (issue 51): the client's way to a cycle's documentation list; weights for the settings page (issue 53). Newest first: winter (WS2026/27) after summer of a year.
         examiners.MapGet("/cycles", async (EasyDb db) =>
             await db.Cycles.OrderByDescending(c => c.Year).ThenByDescending(c => c.Type == CycleType.Winter)
-                .Select(c => new { c.Id, Type = c.Type.ToString(), c.Year }).ToListAsync());
+                .Select(c => new { c.Id, Type = c.Type.ToString(), c.Year, Weights = new[] { c.Weight1, c.Weight2, c.Weight3, c.Weight4, c.Weight5 } }).ToListAsync());
 
         examiners.MapGet("/cycles/{cycleId:guid}/documentations", async (Guid cycleId, ClaimsPrincipal user, EasyDb db, ParticipantKeys keys) =>
         {

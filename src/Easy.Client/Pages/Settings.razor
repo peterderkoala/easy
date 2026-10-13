@@ -1,0 +1,109 @@
+@page "/settings"
+@using Easy.Contracts
+@inject IAccessTokenProvider Tokens
+@inject HttpClient Http
+
+<PageTitle>Einstellungen</PageTitle>
+
+@* S06 (issues 39, 53): deviation thresholds, default weights and per-cycle weights. The API validates (sum 100, cycle
+   locked after the first submit); its problem detail is shown as is. *@
+<AuthorizeView Roles="admin">
+    <Authorized>
+        <h1>Einstellungen</h1>
+        <p><a href="">Zurück</a></p>
+        @if (message is not null)
+        {
+            <p role="alert">@message</p>
+        }
+        @if (settings is null)
+        {
+            @if (message is null)
+            {
+                <p>Lädt …</p>
+            }
+        }
+        else
+        {
+            <form @onsubmit="SaveSettings">
+                <h2>Abweichung</h2>
+                <label>Abschnitt (Punkte) <input type="number" min="0" max="10" @bind="settings.DeviationSectionPoints" required /></label>
+                <label>Gesamt (Punkte) <input type="number" min="0" max="100" @bind="settings.DeviationTotalPoints" required /></label>
+                <h2>Standardgewichtung (%)</h2>
+                @WeightInputs(settings.DefaultWeights)
+                <button type="submit" disabled="@busy">Speichern</button>
+            </form>
+
+            <h2>Gewichtung je Prüfungszeitraum (%)</h2>
+            @foreach (var cycle in cycles!)
+            {
+                <form @onsubmit="() => SaveWeights(cycle)">
+                    <h3>@(cycle.Type == "Winter" ? "Winter" : "Sommer") @cycle.Year</h3>
+                    @WeightInputs(cycle.Weights)
+                    <button type="submit" disabled="@busy">Speichern</button>
+                </form>
+            }
+        }
+    </Authorized>
+    <NotAuthorized><p>Nur für Admins.</p></NotAuthorized>
+</AuthorizeView>
+
+@code {
+    // Mutable: the inputs bind straight into the loaded DTOs.
+    class SettingsDto
+    {
+        public int DeviationSectionPoints { get; set; }
+        public int DeviationTotalPoints { get; set; }
+        public int[] DefaultWeights { get; set; } = [];
+    }
+    record Cycle(Guid Id, string Type, int Year, int[] Weights);
+
+    SettingsDto? settings;
+    List<Cycle>? cycles;
+    string? message;
+    bool busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settingsResponse = await Http.Send(Tokens, new(HttpMethod.Get, "api/settings"));
+        var cyclesResponse = await Http.Send(Tokens, new(HttpMethod.Get, "api/cycles"));
+        if (settingsResponse is null || cyclesResponse is null)
+            return;
+        if (!settingsResponse.IsSuccessStatusCode || !cyclesResponse.IsSuccessStatusCode)
+        {
+            message = await (settingsResponse.IsSuccessStatusCode ? cyclesResponse : settingsResponse).Problem();
+            return;
+        }
+        cycles = await cyclesResponse.Content.ReadFromJsonAsync<List<Cycle>>();
+        settings = await settingsResponse.Content.ReadFromJsonAsync<SettingsDto>();
+    }
+
+    // One input per section (S06 matrix order), bound into the array.
+    RenderFragment WeightInputs(int[] weights) => @<p>
+        @for (int i = 0; i < weights.Length; i++)
+        {
+            var at = i;
+            <label>@GradingMatrix.Sections[at].Name <input type="number" min="0" max="100" @bind="weights[at]" @bind:event="oninput" required /></label>
+        }
+        <span>Summe: @weights.Sum()</span>
+    </p>;
+
+    Task SaveSettings() => Put("api/settings", settings!);
+
+    Task SaveWeights(Cycle cycle) => Put($"api/cycles/{cycle.Id}/weights", new { weights = cycle.Weights });
+
+    async Task Put(string path, object body)
+    {
+        busy = true;
+        message = null;
+        try
+        {
+            var response = await Http.Send(Tokens, new(HttpMethod.Put, path) { Content = JsonContent.Create(body) });
+            if (response is not null)
+                message = response.IsSuccessStatusCode ? "Gespeichert." : await response.Problem();
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}
