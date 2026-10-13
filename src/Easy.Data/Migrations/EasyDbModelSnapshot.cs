@@ -562,6 +562,29 @@ namespace Easy.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Easy.Data.SummaryView", b =>
+                {
+                    b.Property<Guid>("ParticipantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("participant_id");
+
+                    b.Property<Guid>("ExaminerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("examiner_id");
+
+                    b.Property<DateTimeOffset>("OpenedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("opened_at");
+
+                    b.HasKey("ParticipantId", "ExaminerId")
+                        .HasName("pk_summary_views");
+
+                    b.HasIndex("ExaminerId")
+                        .HasDatabaseName("ix_summary_views_examiner_id");
+
+                    b.ToTable("summary_views", (string)null);
+                });
+
             modelBuilder.Entity("Easy.Data.Comment", b =>
                 {
                     b.HasOne("Easy.Data.Examiner", null)
@@ -706,6 +729,23 @@ namespace Easy.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_registrations_participants_participant_id");
+                });
+
+            modelBuilder.Entity("Easy.Data.SummaryView", b =>
+                {
+                    b.HasOne("Easy.Data.Examiner", null)
+                        .WithMany()
+                        .HasForeignKey("ExaminerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_summary_views_examiners_examiner_id");
+
+                    b.HasOne("Easy.Data.Participant", null)
+                        .WithMany()
+                        .HasForeignKey("ParticipantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_summary_views_participants_participant_id");
                 });
 
             modelBuilder.Entity("Easy.Data.ExaminerGrading", b =>

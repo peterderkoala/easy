@@ -38,6 +38,7 @@ public static class ExaminerGradingEndpoints
                                     select new { r.ExaminerId, e.DisplayName }).ToListAsync();
             var gradings = await db.ExaminerGradings.Include(g => g.Criteria).Where(g => g.ParticipantId == participantId).ToDictionaryAsync(g => g.ExaminerId);
             var graders = registered.Select(r => r.ExaminerId).ToList();
+            bool summaryView = await db.SummaryViews.AnyAsync(v => v.ParticipantId == participantId && v.ExaminerId == viewer);
             using var key = participant.KeyForgotten ? null : keys.Open(participant);
 
             return Results.Ok(new
@@ -46,7 +47,7 @@ public static class ExaminerGradingEndpoints
                 Gradings = registered.Select(r =>
                 {
                     var g = gradings.GetValueOrDefault(r.ExaminerId);
-                    bool mine = r.ExaminerId == viewer, readable = g is not null && MayRead(viewer, user.IsInRole("admin"), r.ExaminerId, graders, participant.DocumentationStatus);
+                    bool mine = r.ExaminerId == viewer, readable = g is not null && MayRead(viewer, user.IsInRole("admin"), r.ExaminerId, graders, participant.DocumentationStatus, summaryView);
                     return new
                     {
                         Examiner = r.DisplayName,
@@ -138,6 +139,32 @@ public static class ExaminerGradingEndpoints
             return Results.NoContent();
         });
 
+        // Unblinds the opener for good, drafts included (S06, issue 38). Opening twice changes nothing.
+        app.MapPost("/api/participants/{participantId:guid}/summary-view", async (Guid participantId, ClaimsPrincipal user, EasyDb db,
+            IHubContext<GradingHub, IGradingClient> hub, HttpContext context) =>
+        {
+            if (await Grader(db, user, participantId) is not { } examiner)
+                return Results.Problem(NotGrader, statusCode: 403);
+            if (await db.SummaryViews.AnyAsync(v => v.ParticipantId == participantId && v.ExaminerId == examiner.Id))
+                return Results.NoContent();
+            // Shared participant lock until UseOutbox commits: the graded transition (spec 16) waits and then sees this.
+            if (await db.Participants.FromSql($"SELECT * FROM participants WHERE id = {participantId} FOR SHARE").SingleAsync() is not { KeyForgotten: false } participant)
+                return Results.Problem("Unknown participant.", statusCode: 404);
+            if (participant.DocumentationStatus is DocumentationStatus.Graded)
+                return Results.Problem("The documentation is graded; every grading is visible.", statusCode: 409);
+            db.SummaryViews.Add(new() { ParticipantId = participantId, ExaminerId = examiner.Id, OpenedAt = DateTimeOffset.UtcNow });
+            try
+            {
+                await db.SaveChangesAsync();
+            }
+            catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                return Results.NoContent(); // a parallel open of the same examiner won; EF rolled back to its savepoint, so no second audit row
+            }
+            context.AfterCommit(() => hub.Clients.Group(GradingHub.Group(participantId)).SummaryViewOpened(participantId, examiner.DisplayName));
+            return Results.NoContent();
+        }).RequireAuthorization(p => p.RequireRole("examiner")); // admins hold it too
+
         // The documentation stays in progress.
         grading.MapPost("/mine/withdraw", async (Guid participantId, ClaimsPrincipal user, EasyDb db,
             IHubContext<GradingHub, IGradingClient> hub, HttpContext context) =>
@@ -155,10 +182,10 @@ public static class ExaminerGradingEndpoints
         });
     }
 
-    // ADR 0005: the one visibility function. Own grading always; a grader sees the others once graded (spec 15 adds the
-    // summary view); an admin not grading sees all, read-only; everyone else the status only.
-    public static bool MayRead(Guid? viewer, bool admin, Guid author, IReadOnlyCollection<Guid> graders, DocumentationStatus? status) =>
-        author == viewer || (viewer is { } v && graders.Contains(v) ? status == DocumentationStatus.Graded : admin);
+    // ADR 0005: the one visibility function. Own grading always; a grader sees the others once graded or after opening
+    // the summary view; an admin not grading sees all, read-only; everyone else the status only.
+    public static bool MayRead(Guid? viewer, bool admin, Guid author, IReadOnlyCollection<Guid> graders, DocumentationStatus? status, bool summaryView) =>
+        author == viewer || (viewer is { } v && graders.Contains(v) ? status == DocumentationStatus.Graded || summaryView : admin);
 
     static string? Invalid(Body body)
     {

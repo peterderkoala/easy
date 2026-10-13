@@ -315,14 +315,7 @@ public class ExaminerGradingTests(KeycloakFixture keycloak, Infra infra) : IAsyn
         await Register(admin); // B, blinded as a registered examiner
         var messages = new List<string>();
         var submitted = new TaskCompletionSource();
-        await using var b = new HubConnectionBuilder()
-            .WithUrl(new Uri(mainApi.Server.BaseAddress, "hubs/grading"), o =>
-            {
-                o.HttpMessageHandlerFactory = _ => mainApi.Server.CreateHandler();
-                o.Transports = HttpTransportType.LongPolling; // TestServer has no WebSockets
-                o.AccessTokenProvider = () => Task.FromResult<string?>(admin);
-            })
-            .Build();
+        await using var b = Hub(admin);
         // Every IGradingClient method, so no message B could receive goes unrecorded.
         foreach (var method in typeof(IGradingClient).GetMethods())
             b.On(method.Name, method.GetParameters().Select(p => p.ParameterType).ToArray(), args =>
@@ -351,7 +344,94 @@ public class ExaminerGradingTests(KeycloakFixture keycloak, Infra infra) : IAsyn
             messages); // IDs, display name and status only
     }
 
+    [Fact]
+    public async Task Summary_view_unblinds_only_the_opener()
+    {
+        await Register(examiner); // A
+        await Register(admin); // B
+        await Save(examiner, Draft(("fiae-2026:1.1", 4, Secret)));
+        await Save(admin, Draft(("fiae-2026:1.1", 2, "Bemerkung von B")));
+        Assert.Equal(JsonValueKind.Null, Foreign(await Read(admin)).GetProperty("points").ValueKind); // blinded before
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, SummaryView, admin)).StatusCode);
+
+        var a = Foreign(await Read(admin)); // B reads A, drafts included
+        Assert.Equal(4, a.GetProperty("points").GetProperty("fiae-2026:1.1").GetInt32());
+        Assert.Equal(Secret, a.GetProperty("remarks").GetProperty("fiae-2026:1.1").GetString());
+        var b = Foreign(await Read(examiner)); // A still blinded
+        Assert.Equal(JsonValueKind.Null, b.GetProperty("points").ValueKind);
+        Assert.Equal(JsonValueKind.Null, b.GetProperty("remarks").ValueKind);
+    }
+
+    [Fact]
+    public async Task Opening_the_summary_view_is_audited()
+    {
+        await Register(examiner);
+
+        // Idempotent, in parallel (the unique key decides) and afterwards.
+        var parallel = await Task.WhenAll(Send(HttpMethod.Post, SummaryView, examiner), Send(HttpMethod.Post, SummaryView, examiner));
+        Assert.All(parallel, r => Assert.Equal(HttpStatusCode.NoContent, r.StatusCode));
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, SummaryView, examiner)).StatusCode);
+
+        var entry = Assert.Single(await Db(db => db.AuditEntries.Where(e => e.Entity == "SummaryView").ToListAsync()));
+        Assert.Equal((participant, $"{await ExaminerId("examiner")}"), (entry.ParticipantId, entry.EntityKey));
+        Assert.Single(await Db(db => db.SummaryViews.ToListAsync()));
+    }
+
+    [Fact]
+    public async Task Other_examiner_cannot_open_summary_view()
+    {
+        await Register(examiner);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Post, SummaryView, admin)).StatusCode); // not registered
+        Assert.Empty(await Db(db => db.SummaryViews.ToListAsync()));
+    }
+
+    [Fact]
+    public async Task Summary_view_of_a_forgotten_participant_is_rejected()
+    {
+        await Register(examiner);
+        await Db(db => db.Participants.Where(p => p.Id == participant).ExecuteUpdateAsync(s => s.SetProperty(p => p.KeyForgotten, true)));
+
+        Assert.Equal(HttpStatusCode.NotFound, (await Send(HttpMethod.Post, SummaryView, examiner)).StatusCode);
+        Assert.Empty(await Db(db => db.SummaryViews.ToListAsync()));
+    }
+
+    [Fact]
+    public async Task Summary_view_is_closed_once_graded()
+    {
+        await Register(examiner);
+        await Db(db => db.Participants.Where(p => p.Id == participant).ExecuteUpdateAsync(s => s.SetProperty(p => p.DocumentationStatus, DocumentationStatus.Graded)));
+
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(HttpMethod.Post, SummaryView, examiner)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Summary_view_opened_event_reaches_the_group()
+    {
+        await Register(examiner);
+        await Register(admin);
+        var opened = new TaskCompletionSource<(Guid, string)>();
+        await using var a = Hub(examiner);
+        a.On<Guid, string>(nameof(IGradingClient.SummaryViewOpened), (p, name) => opened.TrySetResult((p, name)));
+        await a.StartAsync();
+        await a.InvokeAsync("JoinDocumentation", participant);
+
+        await Send(HttpMethod.Post, SummaryView, admin);
+
+        Assert.Equal((participant, "Dev Admin"), await opened.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
     record Grading(Dictionary<string, int> Points, Dictionary<string, string> Remarks);
+
+    HubConnection Hub(string token) => new HubConnectionBuilder()
+        .WithUrl(new Uri(mainApi.Server.BaseAddress, "hubs/grading"), o =>
+        {
+            o.HttpMessageHandlerFactory = _ => mainApi.Server.CreateHandler();
+            o.Transports = HttpTransportType.LongPolling; // TestServer has no WebSockets
+            o.AccessTokenProvider = () => Task.FromResult<string?>(token);
+        })
+        .Build();
 
     static Grading Draft((string Key, int Points, string? Remark) criterion) =>
         new(new() { [criterion.Key] = criterion.Points }, criterion.Remark is null ? [] : new() { [criterion.Key] = criterion.Remark });
@@ -369,6 +449,8 @@ public class ExaminerGradingTests(KeycloakFixture keycloak, Infra infra) : IAsyn
 
     async Task<uint> Version(string token) => Own(await Read(token)).GetProperty("version").GetUInt32();
 
+    static JsonElement Foreign(JsonElement read) => read.GetProperty("gradings").EnumerateArray().Single(g => !g.GetProperty("mine").GetBoolean());
+
     static JsonElement Own(JsonElement read) => read.GetProperty("gradings").EnumerateArray().Single(g => g.GetProperty("mine").GetBoolean());
 
     async Task<JsonElement> Read(string token)
@@ -379,6 +461,7 @@ public class ExaminerGradingTests(KeycloakFixture keycloak, Infra infra) : IAsyn
     }
 
     string Mine => $"/api/participants/{participant}/grading/mine";
+    string SummaryView => $"/api/participants/{participant}/summary-view";
     string Registration => $"/api/participants/{participant}/registration";
 
     async Task Register(string token) => (await Send(HttpMethod.Post, Registration, token)).EnsureSuccessStatusCode();

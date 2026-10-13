@@ -109,6 +109,15 @@ public class CriterionGrading
     [Audited] public byte[]? Remark { get; set; }
 }
 
+// S06 (issue 38): an examiner opened the summary view of a documentation. It unblinds only them, for good (no closing).
+// Opening is audited through OpenedAt.
+public class SummaryView
+{
+    public Guid ParticipantId { get; set; }
+    public Guid ExaminerId { get; set; }
+    [Audited] public DateTimeOffset OpenedAt { get; set; }
+}
+
 // S06 (issue 37): one open thread per documentation, by any examiner. Not blinded, not audited, never counted.
 public class Comment
 {
