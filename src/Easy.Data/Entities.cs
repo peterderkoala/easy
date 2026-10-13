@@ -121,6 +121,21 @@ public class Deviation
     public DateTimeOffset FoundAt { get; set; }
 }
 
+public enum ThirdExaminerStatus { Invited, Accepted, Declined }
+
+// S06 (issues 34, 40): on a deviation a registered examiner invites a third examiner by name. Not a registration. An open
+// or accepted invitation freezes both registered gradings; declining, stepping back or deactivation sets declined, which
+// lifts the freeze. At most one invited or accepted per participant (partial unique index); declined rows stay.
+public class ThirdExaminerInvitation
+{
+    public Guid Id { get; set; }
+    public Guid ParticipantId { get; set; }
+    public Guid ExaminerId { get; set; }
+    public Guid InvitedBy { get; set; } // Examiner.Id
+    public ThirdExaminerStatus Status { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
 // S06 (issue 38): an examiner opened the summary view of a documentation. It unblinds only them, for good (no closing).
 // Opening is audited through OpenedAt.
 public class SummaryView

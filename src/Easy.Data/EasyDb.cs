@@ -24,6 +24,7 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<SummaryView> SummaryViews => Set<SummaryView>();
     public DbSet<Deviation> Deviations => Set<Deviation>();
+    public DbSet<ThirdExaminerInvitation> ThirdExaminerInvitations => Set<ThirdExaminerInvitation>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder builder) =>
         builder.Properties<Enum>().HaveConversion<string>();
@@ -83,6 +84,13 @@ public class EasyDb(DbContextOptions<EasyDb> options) : DbContext(options)
         {
             e.HasKey(d => d.ParticipantId);
             e.HasOne<Participant>().WithOne().HasForeignKey<Deviation>(d => d.ParticipantId);
+        });
+        model.Entity<ThirdExaminerInvitation>(e =>
+        {
+            e.HasIndex(i => i.ParticipantId).IsUnique().HasFilter("status <> 'Declined'");
+            e.HasOne<Participant>().WithMany().HasForeignKey(i => i.ParticipantId);
+            e.HasOne<Examiner>().WithMany().HasForeignKey(i => i.ExaminerId);
+            e.HasOne<Examiner>().WithMany().HasForeignKey(i => i.InvitedBy);
         });
         model.Entity<SummaryView>(e =>
         {

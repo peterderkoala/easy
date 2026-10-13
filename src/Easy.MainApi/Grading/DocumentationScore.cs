@@ -20,6 +20,13 @@ public static class DocumentationScore
     public static async Task Check(EasyDb db, IBus bus, IHubContext<GradingHub, IGradingClient> hub, HttpContext context, Participant participant, Examiner by)
     {
         var gradings = await Submitted(db, participant.Id);
+        // The accepted third examiner's submit: average of three, no further deviation check (S06).
+        if (await db.ExaminerGradings.Include(g => g.Criteria).SingleOrDefaultAsync(g => g.ParticipantId == participant.Id && g.Status == ExaminerGradingStatus.Submitted
+                && db.ThirdExaminerInvitations.Any(i => i.ParticipantId == participant.Id && i.ExaminerId == g.ExaminerId && i.Status == ThirdExaminerStatus.Accepted)) is { } third)
+        {
+            await Grade(db, bus, hub, context, participant, by, [.. gradings, third]);
+            return;
+        }
         if (gradings.Count < 2)
             return;
         var (sectionThreshold, totalThreshold) = await SettingsEndpoints.DeviationThresholds(db);

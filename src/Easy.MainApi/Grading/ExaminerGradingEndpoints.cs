@@ -16,8 +16,9 @@ namespace Easy.MainApi.Grading;
 public static class ExaminerGradingEndpoints
 {
     public const int MinRemarkLength = 10;
-    const string NotGrader = "Only active registered examiners grade.", GradedFinal = "The documentation is graded; its grading is final.",
-        Stale = "The grading changed meanwhile; reload it.";
+    internal const string GradedFinal = "The documentation is graded; its grading is final.";
+    const string NotGrader = "Only active registered examiners grade.",
+        Stale = "The grading changed meanwhile; reload it.", Frozen = "A third examiner is invited; both gradings are frozen.";
 
     // The whole draft: criteria missing here are cleared. Version is the one last read; null for a first save.
     public record Body(uint? Version, Dictionary<string, int>? Points, Dictionary<string, string?>? Remarks, int?[]? Pages);
@@ -38,8 +39,13 @@ public static class ExaminerGradingEndpoints
                                     where r.ParticipantId == participantId
                                     orderby r.Slot
                                     select new { r.ExaminerId, e.DisplayName }).ToListAsync();
+            var third = await (from i in db.ThirdExaminerInvitations
+                               join e in db.Examiners on i.ExaminerId equals e.Id
+                               where i.ParticipantId == participantId && i.Status != ThirdExaminerStatus.Declined
+                               select new { i.ExaminerId, e.DisplayName, i.Status }).SingleOrDefaultAsync();
+            var examiners = third is { Status: ThirdExaminerStatus.Accepted } ? [.. registered, new { third.ExaminerId, third.DisplayName }] : registered;
             var gradings = await db.ExaminerGradings.Include(g => g.Criteria).Where(g => g.ParticipantId == participantId).ToDictionaryAsync(g => g.ExaminerId);
-            var graders = registered.Select(r => r.ExaminerId).ToList();
+            var graders = examiners.Select(r => r.ExaminerId).ToList();
             bool summaryView = await db.SummaryViews.AnyAsync(v => v.ParticipantId == participantId && v.ExaminerId == viewer);
             using var key = participant.KeyForgotten ? null : keys.Open(participant);
             // Deviation notice (issue 39): graders see the section names and/or "total", never gaps or direction; an
@@ -59,7 +65,8 @@ public static class ExaminerGradingEndpoints
                     Thresholds = adminView ? new { Section = deviation.SectionThreshold, Total = deviation.TotalThreshold } : null,
                     AcceptedBy = grader || adminView ? registered.Where(r => deviation.AcceptedBy.Contains(r.ExaminerId)).Select(r => r.DisplayName).ToList() : null,
                 },
-                Gradings = registered.Select(r =>
+                ThirdExaminer = third is null ? null : new { Examiner = third.DisplayName, Status = third.Status.ToString() },
+                Gradings = examiners.Select(r =>
                 {
                     var g = gradings.GetValueOrDefault(r.ExaminerId);
                     bool mine = r.ExaminerId == viewer, readable = g is not null && MayRead(viewer, user.IsInRole("admin"), r.ExaminerId, graders, participant.DocumentationStatus, summaryView);
@@ -82,9 +89,9 @@ public static class ExaminerGradingEndpoints
         {
             if (Invalid(body) is { } error)
                 return Results.Problem(error, statusCode: 400);
-            if (await Grader(db, user, participantId) is not { } examiner)
+            if (await Grader(db, user, participantId, thirdToo: true) is not { } examiner)
                 return Results.Problem(NotGrader, statusCode: 403);
-            var participant = (await db.Participants.FindAsync(participantId))!; // registered, so it exists
+            var participant = (await db.Participants.FindAsync(participantId))!; // registered or invited, so it exists
             if (participant.KeyForgotten)
                 return Results.Problem("Unknown participant.", statusCode: 404);
             if (participant.DocumentationStatus is DocumentationStatus.Graded)
@@ -129,7 +136,7 @@ public static class ExaminerGradingEndpoints
         grading.MapPost("/mine/submit", async (Guid participantId, ClaimsPrincipal user, EasyDb db, ParticipantKeys keys, IBus bus,
             IHubContext<GradingHub, IGradingClient> hub, HttpContext context) =>
         {
-            if (await Grader(db, user, participantId) is not { } examiner)
+            if (await Grader(db, user, participantId, thirdToo: true) is not { } examiner)
                 return Results.Problem(NotGrader, statusCode: 403);
             // Locks until UseOutbox commits. Shared cycle lock: a concurrent weights change waits and then sees this
             // submit (S06, issue 37). Participant row lock: a concurrent upload waits and then sees in progress, or this
@@ -164,7 +171,7 @@ public static class ExaminerGradingEndpoints
         app.MapPost("/api/participants/{participantId:guid}/summary-view", async (Guid participantId, ClaimsPrincipal user, EasyDb db,
             IHubContext<GradingHub, IGradingClient> hub, HttpContext context) =>
         {
-            if (await Grader(db, user, participantId) is not { } examiner)
+            if (await Grader(db, user, participantId, thirdToo: true) is not { } examiner)
                 return Results.Problem(NotGrader, statusCode: 403);
             if (await db.SummaryViews.AnyAsync(v => v.ParticipantId == participantId && v.ExaminerId == examiner.Id))
                 return Results.NoContent();
@@ -198,6 +205,8 @@ public static class ExaminerGradingEndpoints
                 return Results.Problem(GradedFinal, statusCode: 409);
             if (await db.Deviations.FindAsync(participantId) is not { } deviation)
                 return Results.Problem("There is no deviation to accept.", statusCode: 409);
+            if (await ThirdExaminerEndpoints.Frozen(db, participantId))
+                return Results.Problem(Frozen, statusCode: 409);
             if (deviation.AcceptedBy.Contains(examiner.Id))
                 return Results.NoContent();
 
@@ -222,6 +231,8 @@ public static class ExaminerGradingEndpoints
             var grading = await Mine(db, participantId, examiner).SingleOrDefaultAsync();
             if (grading?.Status != ExaminerGradingStatus.Submitted)
                 return Results.NoContent();
+            if (await ThirdExaminerEndpoints.Frozen(db, participantId))
+                return Results.Problem(Frozen, statusCode: 409);
             if (await db.Deviations.FindAsync(participantId) is { } deviation)
                 db.Deviations.Remove(deviation); // acceptances go with it; the next "both submitted" checks again (issue 39)
             grading.Status = ExaminerGradingStatus.Draft;
@@ -260,15 +271,18 @@ public static class ExaminerGradingEndpoints
     static void Notify(HttpContext context, IHubContext<GradingHub, IGradingClient> hub, Guid participantId, Examiner examiner, ExaminerGradingEvent change) =>
         context.AfterCommit(() => hub.Clients.Group(GradingHub.Group(participantId)).ExaminerGradingChanged(participantId, examiner.DisplayName, change));
 
-    // An active examiner registered for this documentation. Shared locks until UseOutbox commits: a concurrent
-    // deactivation (examiner row) or unregistration (registration row) waits and then sees this write.
-    static async Task<Examiner?> Grader(EasyDb db, ClaimsPrincipal user, Guid participantId)
+    // An active examiner registered for this documentation, or with thirdToo its accepted third examiner. Shared locks
+    // until UseOutbox commits: a concurrent deactivation (examiner row), unregistration (registration row) or step back
+    // (invitation row) waits and then sees this write.
+    internal static async Task<Examiner?> Grader(EasyDb db, ClaimsPrincipal user, Guid participantId, bool thirdToo = false)
     {
         var examiner = await RegistrationEndpoints.LockedCaller(db, user);
         if (examiner is not { Active: true })
             return null;
-        bool registered = await db.Registrations
-            .FromSql($"SELECT * FROM registrations WHERE participant_id = {participantId} AND examiner_id = {examiner.Id} FOR SHARE").AnyAsync();
-        return registered ? examiner : null;
+        bool grading = await db.Registrations
+            .FromSql($"SELECT * FROM registrations WHERE participant_id = {participantId} AND examiner_id = {examiner.Id} FOR SHARE").AnyAsync()
+            || thirdToo && await db.ThirdExaminerInvitations.FromSql(
+                $"SELECT * FROM third_examiner_invitations WHERE participant_id = {participantId} AND examiner_id = {examiner.Id} AND status = 'Accepted' FOR SHARE").AnyAsync();
+        return grading ? examiner : null;
     }
 }

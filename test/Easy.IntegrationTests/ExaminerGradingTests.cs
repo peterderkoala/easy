@@ -614,6 +614,174 @@ public class ExaminerGradingTests(KeycloakFixture keycloak, Infra infra) : IAsyn
         Assert.Equal(1, Foreign(await Read(examiner)).GetProperty("points").GetProperty("fiae-2026:1.2").GetInt32()); // admin: 5 + 1
     }
 
+    // Spec 17 (issue 49). The pair: "examiner" and a seeded grader (submitted 5/5/5/5/5); the third examiner: "admin".
+
+    [Fact]
+    public async Task Invite_only_on_deviation()
+    {
+        await Register(examiner);
+        await SeedSubmittedGrader(5, 5, 5, 5, 5);
+        var admin = await ExaminerId("admin");
+
+        Assert.Equal(HttpStatusCode.Conflict, (await Invite(examiner, admin)).StatusCode); // no deviation yet
+        Assert.Equal(HttpStatusCode.Forbidden, (await Invite(this.admin, admin)).StatusCode); // not registered
+
+        await SubmitSections(examiner, 5, 5, 0, 5, 5);
+        Assert.Equal(HttpStatusCode.NoContent, (await Invite(examiner, admin)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Invite(examiner, admin)).StatusCode); // one open at a time
+        var invitation = await Db(db => db.ThirdExaminerInvitations.SingleAsync());
+        Assert.Equal((admin, await ExaminerId("examiner"), ThirdExaminerStatus.Invited), (invitation.ExaminerId, invitation.InvitedBy, invitation.Status));
+    }
+
+    [Fact]
+    public async Task Registered_pair_cannot_be_invited()
+    {
+        var seeded = await Deviated();
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await Invite(examiner, seeded)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Invite(examiner, await ExaminerId("examiner"))).StatusCode);
+        await Db(db => db.Examiners.Where(e => e.Email == "admin@easy.local").ExecuteUpdateAsync(s => s.SetProperty(e => e.Active, false)));
+        Assert.Equal(HttpStatusCode.BadRequest, (await Invite(examiner, await ExaminerId("admin"))).StatusCode); // inactive
+        Assert.Empty(await Db(db => db.ThirdExaminerInvitations.ToListAsync()));
+    }
+
+    [Fact]
+    public async Task Invitation_freezes_both_gradings()
+    {
+        await Deviated();
+        (await Invite(examiner, await ExaminerId("admin"))).EnsureSuccessStatusCode();
+
+        Assert.Equal(HttpStatusCode.Conflict, (await Withdraw(examiner)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(HttpMethod.Post, Accept, examiner)).StatusCode);
+
+        (await Send(HttpMethod.Post, $"{Third}/accept", admin)).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Conflict, (await Withdraw(examiner)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(HttpMethod.Post, Accept, examiner)).StatusCode);
+        Assert.Equal("Submitted", Own(await Read(examiner)).GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Decline_lifts_the_freeze()
+    {
+        await Deviated();
+        (await Invite(examiner, await ExaminerId("admin"))).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Post, $"{Third}/decline", examiner)).StatusCode); // invitee only
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, $"{Third}/decline", admin)).StatusCode);
+
+        Assert.Equal(ThirdExaminerStatus.Declined, (await Db(db => db.ThirdExaminerInvitations.SingleAsync())).Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Post, $"{Third}/accept", admin)).StatusCode); // nothing to accept
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, Accept, examiner)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await Invite(examiner, await ExaminerId("admin"))).StatusCode); // invite again
+    }
+
+    [Fact]
+    public async Task Step_back_discards_draft_and_lifts_the_freeze()
+    {
+        await Deviated();
+        (await Invite(examiner, await ExaminerId("admin"))).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Forbidden, (await Save(admin, Draft(("fiae-2026:1.1", 4, null)))).StatusCode); // invited, not accepted
+        (await Send(HttpMethod.Post, $"{Third}/accept", admin)).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.OK, (await Save(admin, Draft(("fiae-2026:1.1", 4, null)))).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, $"{Third}/decline", admin)).StatusCode);
+
+        var adminId = await ExaminerId("admin");
+        Assert.False(await Db(db => db.ExaminerGradings.AnyAsync(g => g.ExaminerId == adminId)));
+        Assert.Equal(HttpStatusCode.Forbidden, (await Save(admin, Draft(("fiae-2026:1.1", 4, null)))).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await Withdraw(examiner)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Third_examiner_starts_blind()
+    {
+        await Deviated();
+        Assert.Equal(2, (await Read(admin)).GetProperty("gradings").EnumerateArray().Count(g => g.GetProperty("points").ValueKind == JsonValueKind.Object)); // admin not grading
+        (await Invite(examiner, await ExaminerId("admin"))).EnsureSuccessStatusCode();
+        (await Send(HttpMethod.Post, $"{Third}/accept", admin)).EnsureSuccessStatusCode();
+        await Save(admin, Draft(("fiae-2026:1.1", 4, Secret)));
+
+        var read = await Read(admin);
+        Assert.Equal(["fiae-2026:3", "total"], read.GetProperty("deviation").GetProperty("sections").EnumerateArray().Select(s => s.GetString()));
+        Assert.Equal(JsonValueKind.Null, read.GetProperty("deviation").GetProperty("gaps").ValueKind);
+        var others = read.GetProperty("gradings").EnumerateArray().Where(g => !g.GetProperty("mine").GetBoolean()).ToList();
+        Assert.Equal(2, others.Count);
+        Assert.All(others, g => Assert.Equal(JsonValueKind.Null, g.GetProperty("points").ValueKind));
+        Assert.Equal(("Dev Admin", "Accepted"), (read.GetProperty("thirdExaminer").GetProperty("examiner").GetString(), read.GetProperty("thirdExaminer").GetProperty("status").GetString()));
+        var thirds = (await Read(examiner)).GetProperty("gradings").EnumerateArray().Single(g => g.GetProperty("examiner").GetString() == "Dev Admin");
+        Assert.Equal(JsonValueKind.Null, thirds.GetProperty("points").ValueKind); // the pair is blind to the third's draft
+        Assert.DoesNotContain(Secret, (await Read(examiner)).GetRawText());
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, SummaryView, admin)).StatusCode);
+        Assert.Equal(2, (await Read(admin)).GetProperty("gradings").EnumerateArray().Count(g => !g.GetProperty("mine").GetBoolean() && g.GetProperty("points").ValueKind == JsonValueKind.Object));
+    }
+
+    [Fact]
+    public async Task Third_submit_grades_with_average_of_three()
+    {
+        await Deviated(); // 30.0 and 50.0
+        (await Invite(examiner, await ExaminerId("admin"))).EnsureSuccessStatusCode();
+        (await Send(HttpMethod.Post, $"{Third}/accept", admin)).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Post, Accept, admin)).StatusCode); // not one of the pair
+
+        await SubmitSections(admin, 6, 0, 0, 0, 0); // 9.0: far off, no further check
+
+        Assert.Equal("Graded", (await Read(examiner)).GetProperty("status").GetString());
+        Assert.Equal(29.7m, await Score()); // 89 / 3 = 29.67
+        Assert.Equal(HttpStatusCode.Conflict, (await Send(HttpMethod.Post, $"{Third}/decline", admin)).StatusCode); // graded is final
+    }
+
+    [Fact]
+    public async Task Deactivation_releases_invitation()
+    {
+        await Deviated();
+        var adminId = await ExaminerId("admin");
+        (await Invite(examiner, adminId)).EnsureSuccessStatusCode();
+        (await Send(HttpMethod.Post, $"{Third}/accept", admin)).EnsureSuccessStatusCode();
+        await Save(admin, Draft(("fiae-2026:1.1", 4, null)));
+
+        (await Send(HttpMethod.Post, $"/api/examiners/{adminId}/deactivate", admin)).EnsureSuccessStatusCode();
+
+        Assert.Equal(ThirdExaminerStatus.Declined, (await Db(db => db.ThirdExaminerInvitations.SingleAsync())).Status);
+        Assert.False(await Db(db => db.ExaminerGradings.AnyAsync(g => g.ExaminerId == adminId)));
+        Assert.Equal(HttpStatusCode.NoContent, (await Send(HttpMethod.Post, Accept, examiner)).StatusCode); // freeze lifted
+    }
+
+    [Fact]
+    public async Task Invitation_events_reach_the_group()
+    {
+        await Deviated();
+        var events = new List<string>();
+        var accepted = new TaskCompletionSource();
+        await using var hub = Hub(examiner);
+        hub.On<Guid, string>(nameof(IGradingClient.ThirdExaminerInvited), (_, name) => { lock (events) events.Add($"invited {name}"); });
+        hub.On<Guid, string>(nameof(IGradingClient.ThirdExaminerDeclined), (_, name) => { lock (events) events.Add($"declined {name}"); });
+        hub.On<Guid, string>(nameof(IGradingClient.ThirdExaminerAccepted), (_, name) => { lock (events) events.Add($"accepted {name}"); accepted.TrySetResult(); });
+        await hub.StartAsync();
+        await hub.InvokeAsync("JoinDocumentation", participant);
+
+        (await Invite(examiner, await ExaminerId("admin"))).EnsureSuccessStatusCode();
+        (await Send(HttpMethod.Post, $"{Third}/decline", admin)).EnsureSuccessStatusCode();
+        (await Invite(examiner, await ExaminerId("admin"))).EnsureSuccessStatusCode();
+        (await Send(HttpMethod.Post, $"{Third}/accept", admin)).EnsureSuccessStatusCode();
+
+        await accepted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(["invited Dev Admin", "declined Dev Admin", "invited Dev Admin", "accepted Dev Admin"], events);
+    }
+
+    string Third => $"/api/participants/{participant}/third-examiner";
+
+    Task<HttpResponseMessage> Invite(string token, Guid examinerId) => Send(HttpMethod.Post, Third, token, new { examinerId });
+
+    // "examiner" (30.0) and a seeded grader (50.0) deviate in section 3 and the total. Returns the seeded grader's ID.
+    async Task<Guid> Deviated()
+    {
+        await Register(examiner);
+        var seeded = await SeedSubmittedGrader(5, 5, 5, 5, 5);
+        await SubmitSections(examiner, 5, 5, 0, 5, 5);
+        return seeded;
+    }
+
     record Grading(Dictionary<string, int> Points, Dictionary<string, string> Remarks);
 
     string Accept => $"/api/participants/{participant}/grading/deviation/accept";
@@ -655,7 +823,7 @@ public class ExaminerGradingTests(KeycloakFixture keycloak, Infra infra) : IAsyn
 
     // A second registered examiner with a submitted grading, straight in the DB (Keycloak has two users only). Criterion
     // rows by SQL: the audit interceptor needs an HTTP request's actor.
-    async Task SeedSubmittedGrader(params int[] sections)
+    async Task<Guid> SeedSubmittedGrader(params int[] sections)
     {
         var id = Guid.NewGuid();
         await Db(async db =>
@@ -672,6 +840,7 @@ public class ExaminerGradingTests(KeycloakFixture keycloak, Infra infra) : IAsyn
                 await db.Database.ExecuteSqlAsync($"INSERT INTO criterion_gradings (participant_id, examiner_id, criterion_key, points) VALUES ({participant}, {id}, {key}, {points})");
             return 0;
         });
+        return id;
     }
 
     HubConnection Hub(string token) => new HubConnectionBuilder()

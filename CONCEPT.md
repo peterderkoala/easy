@@ -647,6 +647,7 @@ Proposed entities, derived from S02–S12. Not a final schema.
 | CriterionGrading | participant_id, examiner_id, criterion_key, points, remark (encrypted) | Points and remark `[Audited]` (S11) |
 | SummaryView | participant_id, examiner_id, opened_at | Opening unblinds only the opener, for good; `opened_at` `[Audited]` (S06, S11) |
 | Deviation | participant_id, sections (keys and/or "total"), section and total thresholds used, accepted_by, found_at | Stored at the "both submitted" check; deleted by a withdraw (S06, issue 39) |
+| ThirdExaminerInvitation | id, participant_id, examiner_id, invited_by, status (invited/accepted/declined), created_at | Only on a stored deviation, to an active examiner outside the registered pair; at most one invited or accepted per participant. Invited or accepted freezes both registered gradings; decline, step back and deactivation set declined (S06, issue 49) |
 | Comment | id, participant_id, section_key (optional), examiner_id (the author), text (encrypted), created_at | Open discussion on a documentation, never counted (S06, issue 37) |
 | OralSession | id, participant_id, status (open/closed) | 3 main examiners; joined examiners; closed = final. `[DECIDED]` One session per participant (so per cycle), unique on `participant_id`; a second create is rejected. Skeleton: only these three fields, created by MainApi, read by ExamRoom |
 | OralGrade | session_id, examiner_id, criteria values, counted flag | Counted only for main examiners |

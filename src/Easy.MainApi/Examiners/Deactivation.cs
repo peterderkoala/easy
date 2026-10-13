@@ -9,6 +9,7 @@ namespace Easy.MainApi.Examiners;
 
 // S05 (issues 35, 40): admins deactivate and reactivate examiners, API only. Deactivating releases the examiner's
 // registrations without a submitted grading, the same as unregistering; their places reopen. Submitted gradings stay and count.
+// Unsubmitted third-examiner invitations are declined.
 public static class Deactivation
 {
     public static void MapDeactivation(this WebApplication app)
@@ -26,9 +27,15 @@ public static class Deactivation
             // ponytail: bypasses the audit (S11 decides drafts); load and remove the rows if discarded drafts must be logged
             await db.ExaminerGradings.Where(g => g.ExaminerId == id && g.Status != ExaminerGradingStatus.Submitted).ExecuteDeleteAsync();
             db.Registrations.RemoveRange(released);
+            // Open or accepted, unsubmitted third-examiner invitations: declined, which lifts the freeze. A submitted one graded.
+            var invitations = await db.ThirdExaminerInvitations.Where(i => i.ExaminerId == id && i.Status != ThirdExaminerStatus.Declined && !db.ExaminerGradings
+                .Any(g => g.ParticipantId == i.ParticipantId && g.ExaminerId == id && g.Status == ExaminerGradingStatus.Submitted)).ToListAsync();
+            invitations.ForEach(i => i.Status = ThirdExaminerStatus.Declined);
             await db.SaveChangesAsync();
             foreach (var r in released)
                 context.AfterCommit(() => hub.Clients.Group(GradingHub.Group(r.ParticipantId)).RegistrationReleased(r.ParticipantId, examiner.DisplayName));
+            foreach (var i in invitations)
+                context.AfterCommit(() => hub.Clients.Group(GradingHub.Group(i.ParticipantId)).ThirdExaminerDeclined(i.ParticipantId, examiner.DisplayName));
             return Results.NoContent();
         });
 

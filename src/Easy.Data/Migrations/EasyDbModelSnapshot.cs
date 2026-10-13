@@ -620,6 +620,51 @@ namespace Easy.Data.Migrations
                     b.ToTable("summary_views", (string)null);
                 });
 
+            modelBuilder.Entity("Easy.Data.ThirdExaminerInvitation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ExaminerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("examiner_id");
+
+                    b.Property<Guid>("InvitedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("invited_by");
+
+                    b.Property<Guid>("ParticipantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("participant_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_third_examiner_invitations");
+
+                    b.HasIndex("ExaminerId")
+                        .HasDatabaseName("ix_third_examiner_invitations_examiner_id");
+
+                    b.HasIndex("InvitedBy")
+                        .HasDatabaseName("ix_third_examiner_invitations_invited_by");
+
+                    b.HasIndex("ParticipantId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_third_examiner_invitations_participant_id")
+                        .HasFilter("status <> 'Declined'");
+
+                    b.ToTable("third_examiner_invitations", (string)null);
+                });
+
             modelBuilder.Entity("Easy.Data.Comment", b =>
                 {
                     b.HasOne("Easy.Data.Examiner", null)
@@ -791,6 +836,30 @@ namespace Easy.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_summary_views_participants_participant_id");
+                });
+
+            modelBuilder.Entity("Easy.Data.ThirdExaminerInvitation", b =>
+                {
+                    b.HasOne("Easy.Data.Examiner", null)
+                        .WithMany()
+                        .HasForeignKey("ExaminerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_third_examiner_invitations_examiners_examiner_id");
+
+                    b.HasOne("Easy.Data.Examiner", null)
+                        .WithMany()
+                        .HasForeignKey("InvitedBy")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_third_examiner_invitations_examiners_invited_by");
+
+                    b.HasOne("Easy.Data.Participant", null)
+                        .WithMany()
+                        .HasForeignKey("ParticipantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_third_examiner_invitations_participants_participant_id");
                 });
 
             modelBuilder.Entity("Easy.Data.ExaminerGrading", b =>
