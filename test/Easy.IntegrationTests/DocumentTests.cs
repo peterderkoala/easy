@@ -134,6 +134,84 @@ public class DocumentTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifeti
         Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
     }
 
+    // Spec 18 (issue 50): the latest documentation PDF, decrypted with SSE-C, for the browser's own viewer (issue 36).
+
+    [Fact]
+    public async Task Examiner_downloads_latest_documentation_pdf()
+    {
+        var mainApi = MainApi();
+        Guid participant = await SeedParticipant(mainApi);
+        byte[] latest = Encoding.ASCII.GetBytes("%PDF-1.7\nsecond upload\n%%EOF");
+        (await Upload(mainApi.CreateClient(), participant, Pdf)).EnsureSuccessStatusCode();
+        (await Upload(mainApi.CreateClient(), participant, latest)).EnsureSuccessStatusCode();
+
+        var response = await Download(mainApi.CreateClient(), participant);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(latest, await response.Content.ReadAsByteArrayAsync());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await mainApi.CreateClient().GetAsync($"/api/participants/{participant}/documentation/pdf")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Response_is_inline_pdf_and_not_cached()
+    {
+        // Through the gateway, in front of MainApi on Kestrel: the route passes the headers through unchanged.
+        var mainApi = Track(MainApi().WithWebHostBuilder(b => b.UseSetting("urls", "http://127.0.0.1:0")));
+        mainApi.UseKestrel();
+        mainApi.StartServer();
+        var gateway = Track(new WebApplicationFactory<gateway::Program>().WithWebHostBuilder(b => b
+            .UseSetting("urls", "http://127.0.0.1:0")
+            .UseSetting("ReverseProxy:Clusters:main-api:Destinations:main-api:Address", mainApi.ClientOptions.BaseAddress.ToString())));
+        gateway.UseKestrel();
+        gateway.StartServer();
+        Guid participant = await SeedParticipant(mainApi);
+        (await Upload(mainApi.CreateClient(), participant, Pdf)).EnsureSuccessStatusCode();
+
+        var response = await Download(gateway.CreateClient(), participant, range: true);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode); // no 206: range requests are ignored
+        Assert.Equal(Pdf, await response.Content.ReadAsByteArrayAsync());
+        Assert.Equal("application/pdf", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("inline", response.Content.Headers.ContentDisposition?.DispositionType);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        Assert.DoesNotContain("bytes", response.Headers.AcceptRanges);
+    }
+
+    [Fact]
+    public async Task Missing_document_returns_404()
+    {
+        var mainApi = MainApi();
+        Guid participant = await SeedParticipant(mainApi);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await Download(mainApi.CreateClient(), participant)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Download(mainApi.CreateClient(), Guid.NewGuid())).StatusCode);
+    }
+
+    [Fact]
+    public async Task Forgotten_participant_returns_410()
+    {
+        var mainApi = MainApi();
+        Guid participant = await SeedParticipant(mainApi);
+        (await Upload(mainApi.CreateClient(), participant, Pdf)).EnsureSuccessStatusCode();
+        await Db(mainApi, async db =>
+        {
+            await mainApi.Services.GetRequiredService<ParticipantKeys>().Forget(await db.Participants.SingleAsync(), mainApi.Services.GetRequiredService<DocumentStore>(), default);
+            return await db.SaveChangesAsync();
+        });
+
+        Assert.Equal(HttpStatusCode.Gone, (await Download(mainApi.CreateClient(), participant)).StatusCode);
+    }
+
+    Task<HttpResponseMessage> Download(HttpClient client, Guid participant, bool range = false)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/participants/{participant}/documentation/pdf")
+        {
+            Headers = { Authorization = new AuthenticationHeaderValue("Bearer", token) },
+        };
+        if (range) request.Headers.Range = new RangeHeaderValue(0, 3);
+        return client.SendAsync(request);
+    }
+
     WebApplicationFactory<mainapi::Program> MainApi(long? limit = null) =>
         Track(infra.Configure(new WebApplicationFactory<mainapi::Program>()).WithWebHostBuilder(b =>
         {

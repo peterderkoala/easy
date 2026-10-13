@@ -41,7 +41,7 @@ public static class UploadDocument
             participant.DocumentationStatus ??= DocumentationStatus.Submitted; // first upload only (S14)
             await db.SaveChangesAsync(ct);
             await bus.Publish(new DocumentUploaded(document.Id, participantId));
-            return Results.Created((string?)null, new { document.Id }); // no download endpoint yet
+            return Results.Created((string?)null, new { document.Id });
         }).RequireAuthorization(p => p.RequireRole("examiner"));
 
     // TestServer and chunked bodies have no Kestrel limit, so the endpoint counts too.

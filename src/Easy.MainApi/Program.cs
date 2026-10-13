@@ -40,6 +40,7 @@ app.MapMe();
 app.MapSetGrade();
 app.MapImports();
 app.MapUploadDocument();
+app.MapDownloadDocumentation();
 app.MapCreateOralSession();
 app.MapSettings();
 app.MapRegistrations();

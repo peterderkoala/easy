@@ -47,17 +47,22 @@ public sealed class DocumentStore : IParticipantObjects
 
     public async Task<byte[]> Get(string key, DataKey dataKey, CancellationToken ct)
     {
-        using var response = await s3.GetObjectAsync(new()
+        await using var stream = await OpenRead(key, dataKey, ct);
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer, ct);
+        return buffer.ToArray();
+    }
+
+    // The decrypted object as it arrives; the caller disposes it. The SSE-C key goes with this request only, so the
+    // data key may be disposed once this returns.
+    public async Task<Stream> OpenRead(string key, DataKey dataKey, CancellationToken ct) =>
+        (await s3.GetObjectAsync(new()
         {
             BucketName = bucket,
             Key = key,
             ServerSideEncryptionCustomerMethod = ServerSideEncryptionCustomerMethod.AES256,
             ServerSideEncryptionCustomerProvidedKey = dataKey.SseCustomerKey,
-        }, ct);
-        using var buffer = new MemoryStream();
-        await response.ResponseStream.CopyToAsync(buffer, ct);
-        return buffer.ToArray();
-    }
+        }, ct)).ResponseStream;
 
     // Forget (S02): removes every object under the participant's prefix.
     public async Task DeleteAll(Guid participantId, CancellationToken ct)
