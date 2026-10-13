@@ -63,7 +63,6 @@
 
 @code {
     record Row(Guid Id, string DisplayNo, string? Name, string? DocumentationStatus, List<string> Examiners, bool Registered);
-    record Problem(string? Detail);
 
     [Parameter] public Guid CycleId { get; set; }
 
@@ -75,7 +74,7 @@
 
     async Task Load()
     {
-        var response = await Send(new(HttpMethod.Get, $"api/cycles/{CycleId}/documentations"));
+        var response = await Http.Send(Tokens, new(HttpMethod.Get, $"api/cycles/{CycleId}/documentations"));
         if (response is null)
             return;
         if (response.IsSuccessStatusCode)
@@ -91,10 +90,9 @@
         message = null;
         try
         {
-            var response = await Send(new(method, $"api/participants/{row.Id}/registration"));
+            var response = await Http.Send(Tokens, new(method, $"api/participants/{row.Id}/registration"));
             if (response is { IsSuccessStatusCode: false })
-                message = (response.Content.Headers.ContentType?.MediaType == "application/problem+json"
-                    ? (await response.Content.ReadFromJsonAsync<Problem>())?.Detail : null) ?? $"Fehler ({(int)response.StatusCode})";
+                message = await response.Problem();
             await Load();
         }
         finally
@@ -111,13 +109,4 @@
         "Graded" => "bewertet",
         _ => status,
     };
-
-    // Null when no token is available (the redirect to login is the framework's).
-    async Task<HttpResponseMessage?> Send(HttpRequestMessage request)
-    {
-        if (!(await Tokens.RequestAccessToken()).TryGetToken(out var token))
-            return null;
-        request.Headers.Authorization = new("Bearer", token.Value);
-        return await Http.SendAsync(request);
-    }
 }

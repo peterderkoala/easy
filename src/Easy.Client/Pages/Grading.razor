@@ -1,0 +1,553 @@
+@page "/participants/{ParticipantId:guid}/grading"
+@implements IAsyncDisposable
+@using System.Net
+@using Easy.Contracts
+@using Microsoft.AspNetCore.SignalR.Client
+@inject IAccessTokenProvider Tokens
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Dokumentation bewerten</PageTitle>
+
+@* S06, S09 (issues 36 to 41, 52): split view, prototype variant B. PDF left in the native viewer (blob URL, #page=N),
+   one section per tab right. Notify then refetch: every hub event and every reconnect re-reads the DTO, which applies
+   blinding (ADR 0005). Saves send the whole draft with its version; a 409 refetches. *@
+<AuthorizeView Roles="examiner">
+    <Authorized>
+        <div class="grading">
+            <header>
+                <a href="">Start</a>
+                <b>Dokumentation bewerten</b>
+                @if (message is not null)
+                {
+                    <span role="alert">@message</span>
+                }
+            </header>
+            <main>
+                <section class="pdf">
+                    @if (pdfUrl is not null)
+                    {
+                        <iframe title="Dokumentation" @ref="frame"></iframe>
+                    }
+                    else
+                    {
+                        <p>@pdfMessage</p>
+                    }
+                </section>
+                <section class="pane">
+                    @if (read is null)
+                    {
+                        <p class="body">Lädt …</p>
+                    }
+                    else
+                    {
+                        var current = GradingMatrix.Sections[tab];
+                        @if (read.Deviation is { } deviation && !Graded)
+                        {
+                            <div class="notice">
+                                <b>Abweichung</b> in: @string.Join(", ", deviation.Sections?.Select(SectionName) ?? ["(nicht sichtbar)"]).
+                                @if (deviation.Gaps is { } gaps)
+                                {
+                                    <span>Abstände: @string.Join(" · ", gaps.Select(g => $"{SectionName(g.Key)} Δ{g.Value}"))</span>
+                                }
+                                else
+                                {
+                                    <span>Zahlen nur in der Übersicht.</span>
+                                }
+                                @if (deviation.AcceptedBy is { Count: > 0 } accepted)
+                                {
+                                    <span>Akzeptiert von: @string.Join(", ", accepted).</span>
+                                }
+                                @if (read.ThirdExaminer is { } third)
+                                {
+                                    <span>Bewertungen eingefroren: @third.Examiner ist als Drittprüfer:in @(third.Status == "Invited" ? "eingeladen" : "dabei").</span>
+                                }
+                            </div>
+                        }
+                        @if (summaryOpenedBy is not null && summaryOpenedBy != myName && !Graded)
+                        {
+                            <div class="notice info">@summaryOpenedBy hat die Übersicht geöffnet.</div>
+                        }
+                        @if (Graded)
+                        {
+                            <div class="notice ok">
+                                Bewertet. Dokumentationsergebnis @read.Score?.ToString("0.0") (Note @(read.Score is { } score ? GradingMatrix.GermanGrade(score) : "–")). Bewertung gesperrt.
+                            </div>
+                        }
+
+                        <div class="tabs">
+                            @for (int i = 0; i < GradingMatrix.Sections.Count; i++)
+                            {
+                                int index = i;
+                                var s = GradingMatrix.Sections[i];
+                                <button class="@(index == tab ? "on" : null)" @onclick="() => Tab(index)">
+                                    @(index + 1). @s.Name.Split(' ')[0] <span class="done">@(SectionDone(s) ? "✓" : "")</span><br />@GradingMatrix.SectionPoints(s, points)/10
+                                </button>
+                            }
+                        </div>
+
+                        <div class="body">
+                            <div class="row">
+                                <h3 class="grow">@(tab + 1). @current.Name <span class="muted">(@read.Weights[tab] %)</span></h3>
+                                @if (me is not null)
+                                {
+                                    <label class="muted">Seite <input class="page" type="number" min="1" value="@pages[tab]" disabled="@(!CanEdit)" @onchange="SetPage" /></label>
+                                }
+                                @if (PageOf(tab) is int jump)
+                                {
+                                    <button @onclick="() => Jump(jump)" title="Seite im PDF">→ S. @jump</button>
+                                }
+                            </div>
+
+                            @foreach (var c in current.Criteria)
+                            {
+                                <div class="card">
+                                    <h4>@c.Name <span class="muted">/ @c.Max</span></h4>
+                                    @if (CanEdit)
+                                    {
+                                        <div class="dots">
+                                            @for (int v = 0; v <= c.Max; v++)
+                                            {
+                                                int value = v;
+                                                <button class="@(points.TryGetValue(c.Key, out var p) && p == value ? "on" : null)" disabled="@busy" @onclick="() => SetPoints(c.Key, value)">@value</button>
+                                            }
+                                        </div>
+                                        <textarea class="@(Short(c.Key) ? "short" : null)" placeholder="Bemerkung (mind. @MinRemark Zeichen)"
+                                                  value="@remarks.GetValueOrDefault(c.Key)" @onchange="e => SetRemark(c.Key, (string?)e.Value)"></textarea>
+                                    }
+                                    else if (me is not null)
+                                    {
+                                        <div><b>@(points.TryGetValue(c.Key, out var own) ? own.ToString() : "–")</b> · @remarks.GetValueOrDefault(c.Key)</div>
+                                    }
+                                    @foreach (var g in Others.Where(g => g.Points is not null))
+                                    {
+                                        <div class="muted">@g.Examiner: <b>@(g.Points!.TryGetValue(c.Key, out var theirs) ? theirs.ToString() : "–")</b> · @g.Remarks?.GetValueOrDefault(c.Key)</div>
+                                    }
+                                </div>
+                            }
+
+                            <h4>Kommentare zu Abschnitt @(tab + 1)</h4>
+                            @CommentList(current.Key)
+                            @if (!Graded)
+                            {
+                                <div class="row">
+                                    <textarea class="grow" @bind="sectionComment" placeholder="Kommentar (zählt nicht zur Note)"></textarea>
+                                    <button disabled="@busy" @onclick="() => Comment(current.Key)">Senden</button>
+                                </div>
+                            }
+                            <details>
+                                <summary class="muted">Allgemeine Kommentare: @comments.Count(c => c.Section is null)</summary>
+                                @CommentList(null)
+                                @if (!Graded)
+                                {
+                                    <div class="row">
+                                        <textarea class="grow" @bind="generalComment" placeholder="Allgemeiner Kommentar"></textarea>
+                                        <button disabled="@busy" @onclick="() => Comment(null)">Senden</button>
+                                    </div>
+                                }
+                            </details>
+                        </div>
+
+                        <div class="bottom">
+                            @foreach (var g in read.Gradings)
+                            {
+                                <span>@(g.Mine ? "Sie" : g.Examiner): <span class="pill @g.Status">@StatusText(g.Status)</span></span>
+                            }
+                            @if (read.ThirdExaminer is { Status: "Invited" } invited)
+                            {
+                                <span>@invited.Examiner (Dritt): <span class="pill">eingeladen</span></span>
+                            }
+                            @if (Graded)
+                            {
+                                <span class="pill graded">bewertet</span>
+                            }
+                            else if (read.Deviation is not null)
+                            {
+                                <span class="pill dev">Abweichung</span>
+                            }
+                            <span class="grow"></span>
+                            @if (me is not null)
+                            {
+                                <span class="muted">@Completed/@Criteria.Count vollständig</span>
+                                <b>@GradingMatrix.Total(points, read.Weights).ToString("0.0")</b>
+                                @if (me.Status != "Submitted" && !Graded)
+                                {
+                                    <button class="primary" disabled="@(busy || Completed < Criteria.Count)" @onclick='() => Act("grading/mine/submit")'>Einreichen</button>
+                                }
+                                @if (me.Status == "Submitted" && !Graded && Registered && read.ThirdExaminer is null)
+                                {
+                                    <button disabled="@busy" @onclick='() => Act("grading/mine/withdraw")'>Zurückziehen</button>
+                                }
+                                @if (!read.SummaryView && !Graded)
+                                {
+                                    <button disabled="@busy" @onclick='() => Act("summary-view")'>Übersicht öffnen</button>
+                                }
+                                @if (Registered && read.Deviation is { } d && !Graded && read.ThirdExaminer is null)
+                                {
+                                    @if (d.AcceptedBy?.Contains(myName ?? "") != true)
+                                    {
+                                        <button disabled="@busy" @onclick='() => Act("grading/deviation/accept")'>Abweichung akzeptieren</button>
+                                    }
+                                    <select @bind="invitee">
+                                        <option value="">Drittprüfer:in …</option>
+                                        @foreach (var e in examiners.Where(e => read.Gradings.All(g => g.Examiner != e.DisplayName)))
+                                        {
+                                            <option value="@e.Id">@e.DisplayName</option>
+                                        }
+                                    </select>
+                                    <button disabled="@(busy || invitee == "")" @onclick="Invite">Einladen</button>
+                                }
+                                @if (read.ThirdExaminer is { Status: "Accepted" } t && t.Examiner == myName && me.Status != "Submitted" && !Graded)
+                                {
+                                    <button disabled="@busy" @onclick='() => Act("third-examiner/decline")'>Zurücktreten</button>
+                                }
+                            }
+                            @if (read.ThirdExaminer is { Status: "Invited" } mine && mine.Examiner == myName)
+                            {
+                                <button class="primary" disabled="@busy" @onclick='() => Act("third-examiner/accept")'>Als Drittprüfer:in annehmen</button>
+                                <button disabled="@busy" @onclick='() => Act("third-examiner/decline")'>Ablehnen</button>
+                            }
+                        </div>
+                    }
+                </section>
+            </main>
+        </div>
+    </Authorized>
+    <NotAuthorized><p>Nur für Prüfer.</p></NotAuthorized>
+</AuthorizeView>
+
+@code {
+    record Read(string? Status, int[] Weights, bool SummaryView, decimal? Score, DeviationDto? Deviation, ThirdDto? ThirdExaminer, List<GradingDto> Gradings);
+    record DeviationDto(List<string>? Sections, Dictionary<string, decimal>? Gaps, List<string>? AcceptedBy);
+    record ThirdDto(string Examiner, string Status);
+    record GradingDto(string Examiner, bool Mine, string? Status, uint? Version, int?[]? Pages, Dictionary<string, int>? Points, Dictionary<string, string>? Remarks);
+    record CommentDto(Guid Id, string Author, string? Section, string? Text, DateTimeOffset CreatedAt);
+    record ExaminerDto(Guid Id, string DisplayName);
+    record Saved(uint Version);
+
+    const int MinRemark = GradingMatrix.MinRemarkLength;
+    static readonly List<GradingMatrix.Criterion> Criteria = [.. GradingMatrix.Sections.SelectMany(s => s.Criteria)];
+
+    [Parameter] public Guid ParticipantId { get; set; }
+    [CascadingParameter] Task<AuthenticationState> Auth { get; set; } = null!;
+
+    Read? read;
+    GradingDto? me;
+    string? myName, message, summaryOpenedBy, pdfUrl, pdfMessage = "PDF lädt …";
+    string sectionComment = "", generalComment = "", invitee = "";
+    List<CommentDto> comments = [];
+    List<ExaminerDto> examiners = [];
+    int tab;
+    ElementReference frame;
+    bool busy, disposed;
+    HubConnection? hub;
+    readonly SemaphoreSlim gate = new(1, 1); // saves and loads one at a time, so a load sees every finished save
+
+    // The own draft as edited here; the server's copy replaces it when its version differs (another tab, or a 409).
+    Dictionary<string, int> points = [];
+    Dictionary<string, string> remarks = [];
+    int?[] pages = new int?[GradingMatrix.Sections.Count];
+    uint? version;
+
+    bool Graded => read?.Status == "Graded";
+    bool CanEdit => me is not null && me.Status != "Submitted" && !Graded;
+    // ponytail: the DTO names examiners only (ADR 0005), so "am I the third examiner", "did I accept" and the invite list compare
+    // display names; add flags (or IDs) to the read DTO if names can repeat
+    bool Registered => me is not null && !(read?.ThirdExaminer is { Status: "Accepted" } t && t.Examiner == myName);
+    IEnumerable<GradingDto> Others => read?.Gradings.Where(g => !g.Mine) ?? [];
+    int Completed => Criteria.Count(c => points.ContainsKey(c.Key) && !Short(c.Key) && remarks.ContainsKey(c.Key));
+
+    // Once per page instance: a new participant is a new page (links go through the list).
+    protected override async Task OnInitializedAsync()
+    {
+        myName = (await Auth).User.FindFirst("name")?.Value;
+        await Load();
+        await LoadComments();
+        await LoadPdf();
+        if ((await Http.Send(Tokens, new(HttpMethod.Get, "api/examiners"))) is { IsSuccessStatusCode: true } list)
+            examiners = await list.Content.ReadFromJsonAsync<List<ExaminerDto>>() ?? [];
+        await Connect();
+    }
+
+    async Task Load(bool reset = false)
+    {
+        await gate.WaitAsync();
+        try
+        {
+            var response = await Http.Send(Tokens, new(HttpMethod.Get, $"api/participants/{ParticipantId}/grading"));
+            if (response is not { IsSuccessStatusCode: true })
+            {
+                message = response is null ? null : await response.Problem();
+                return;
+            }
+            read = await response.Content.ReadFromJsonAsync<Read>();
+            me = read!.Gradings.SingleOrDefault(g => g.Mine);
+            if (me is not null && (reset || me.Version != version))
+            {
+                points = me.Points is null ? [] : new(me.Points);
+                remarks = me.Remarks is null ? [] : new(me.Remarks);
+                pages = me.Pages is { Length: > 0 } p ? p : new int?[GradingMatrix.Sections.Count];
+                version = me.Version;
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    async Task LoadComments()
+    {
+        if ((await Http.Send(Tokens, new(HttpMethod.Get, $"api/participants/{ParticipantId}/comments"))) is { IsSuccessStatusCode: true } response)
+            comments = await response.Content.ReadFromJsonAsync<List<CommentDto>>() ?? [];
+    }
+
+    async Task LoadPdf()
+    {
+        var response = await Http.Send(Tokens, new(HttpMethod.Get, $"api/participants/{ParticipantId}/documentation/pdf"));
+        if (response is not { IsSuccessStatusCode: true })
+        {
+            pdfMessage = response?.StatusCode switch
+            {
+                HttpStatusCode.NotFound => "Noch keine Dokumentation hochgeladen.",
+                HttpStatusCode.Gone => "Teilnehmerdaten gelöscht.",
+                _ => "PDF nicht verfügbar.",
+            };
+            return;
+        }
+        using var stream = new DotNetStreamReference(await response.Content.ReadAsStreamAsync());
+        pdfUrl = await JS.InvokeAsync<string>("easyPdf.url", stream);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (pdfUrl is not null && !pdfShown)
+        {
+            pdfShown = true; // the iframe exists from this render on
+            await Jump(PageOf(0) ?? 1);
+        }
+    }
+
+    bool pdfShown;
+
+    Task Jump(int page) => pdfUrl is null ? Task.CompletedTask : JS.InvokeVoidAsync("easyPdf.show", frame, $"{pdfUrl}#page={page}").AsTask();
+
+    async Task Connect()
+    {
+        hub = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("hubs/grading"), o => o.AccessTokenProvider = () => Tokens.Token())
+            .WithAutomaticReconnect()
+            .Build();
+        // Every event: refetch what this viewer may see (S09). Payloads carry names only.
+        hub.On<Guid, string>(nameof(IGradingClient.RegistrationTaken), (_, _) => Refetch());
+        hub.On<Guid, string>(nameof(IGradingClient.RegistrationReleased), (_, _) => Refetch());
+        hub.On<Guid, string, ExaminerGradingEvent>(nameof(IGradingClient.ExaminerGradingChanged), (_, _, _) => Refetch());
+        hub.On<Guid>(nameof(IGradingClient.DeviationFound), _ => Refetch());
+        hub.On<Guid, string>(nameof(IGradingClient.DeviationAccepted), (_, _) => Refetch());
+        hub.On<Guid, string>(nameof(IGradingClient.ThirdExaminerInvited), (_, _) => Refetch());
+        hub.On<Guid, string>(nameof(IGradingClient.ThirdExaminerAccepted), (_, _) => Refetch());
+        hub.On<Guid, string>(nameof(IGradingClient.ThirdExaminerDeclined), (_, _) => Refetch());
+        hub.On<Guid>(nameof(IGradingClient.Graded), _ => Refetch());
+        hub.On<Guid, string>(nameof(IGradingClient.SummaryViewOpened), (_, name) => { summaryOpenedBy = name; return Refetch(); });
+        hub.On<Guid, Guid, string>(nameof(IGradingClient.CommentAdded), (_, _, _) => Refetch());
+        hub.Reconnected += async _ => { await Join(); await Refetch(); };
+        // The server closes at token expiry (CloseOnAuthenticationExpiration): start again with a fresh token.
+        hub.Closed += async _ => { if (await StartHub()) await Refetch(); };
+        await StartHub();
+    }
+
+    // ponytail: retries every 5 s while the page lives, no backoff; add one if many clients hammer a down MainApi
+    async Task<bool> StartHub()
+    {
+        while (!disposed)
+        {
+            try
+            {
+                await hub!.StartAsync();
+                await Join();
+                return true;
+            }
+            catch (Exception) when (!disposed)
+            {
+                message = "Live-Verbindung getrennt; neuer Versuch …";
+                await InvokeAsync(StateHasChanged);
+                await Task.Delay(5000);
+            }
+        }
+        return false;
+    }
+
+    async Task Join()
+    {
+        await hub!.InvokeAsync("JoinDocumentation", ParticipantId);
+        if (message?.StartsWith("Live-Verbindung") == true)
+            message = null;
+    }
+
+    Task Refetch() => InvokeAsync(async () =>
+    {
+        await Load();
+        await LoadComments();
+        StateHasChanged();
+    });
+
+    void Tab(int index)
+    {
+        tab = index;
+        if (PageOf(index) is int p)
+            _ = Jump(p);
+    }
+
+    // Own page for the section, else the first other examiner's (pages are not blinded, issue 41).
+    int? PageOf(int index) => (me is not null ? pages : null)?.ElementAtOrDefault(index)
+        ?? read?.Gradings.Select(g => g.Pages?.ElementAtOrDefault(index)).FirstOrDefault(p => p is not null);
+
+    bool Short(string key) => remarks.TryGetValue(key, out var r) && r.Trim().Length < MinRemark;
+
+    bool SectionDone(GradingMatrix.Section s) => s.Criteria.All(c => points.ContainsKey(c.Key) && remarks.ContainsKey(c.Key) && !Short(c.Key));
+
+    Task SetPoints(string key, int value)
+    {
+        points[key] = value;
+        return Save();
+    }
+
+    Task SetRemark(string key, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) remarks.Remove(key);
+        else remarks[key] = value;
+        return Save();
+    }
+
+    Task SetPage(ChangeEventArgs e)
+    {
+        pages[tab] = int.TryParse(e.Value?.ToString(), out int p) && p >= 1 ? p : null;
+        if (pages[tab] is int jump)
+            _ = Jump(jump);
+        return Save();
+    }
+
+    async Task Save()
+    {
+        await gate.WaitAsync();
+        HttpResponseMessage? response;
+        try
+        {
+            response = await Http.Send(Tokens, new(HttpMethod.Put, $"api/participants/{ParticipantId}/grading/mine")
+            {
+                Content = JsonContent.Create(new { version, points, remarks, pages }),
+            });
+            if (response is { IsSuccessStatusCode: true })
+            {
+                version = (await response.Content.ReadFromJsonAsync<Saved>())!.Version;
+                message = null;
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
+        if (response is { StatusCode: HttpStatusCode.Conflict })
+        {
+            // Stale version: another tab saved. Else (submitted, graded) the server's reason.
+            uint? sent = version;
+            string reason = await response.Problem();
+            await Load(reset: true);
+            message = version != sent ? "Von anderer Stelle geändert; neu geladen." : reason;
+        }
+        else if (response is { IsSuccessStatusCode: false })
+            message = await response.Problem();
+    }
+
+    // Submit, withdraw, summary view, accept deviation, accept/decline/step back as third examiner; then refetch.
+    async Task Act(string path)
+    {
+        busy = true;
+        try
+        {
+            var response = await Http.Send(Tokens, new(HttpMethod.Post, $"api/participants/{ParticipantId}/{path}"));
+            message = response is { IsSuccessStatusCode: false } ? await response.Problem() : null;
+            await Load();
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    async Task Invite()
+    {
+        busy = true;
+        try
+        {
+            var response = await Http.Send(Tokens, new(HttpMethod.Post, $"api/participants/{ParticipantId}/third-examiner")
+            {
+                Content = JsonContent.Create(new { examinerId = Guid.Parse(invitee) }),
+            });
+            message = response is { IsSuccessStatusCode: false } ? await response.Problem() : null;
+            invitee = "";
+            await Load();
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    async Task Comment(string? section)
+    {
+        string text = section is null ? generalComment : sectionComment;
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+        busy = true;
+        try
+        {
+            var response = await Http.Send(Tokens, new(HttpMethod.Post, $"api/participants/{ParticipantId}/comments")
+            {
+                Content = JsonContent.Create(new { section, text }),
+            });
+            if (response is { IsSuccessStatusCode: false })
+                message = await response.Problem();
+            else if (section is null) generalComment = "";
+            else sectionComment = "";
+            await LoadComments();
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    RenderFragment CommentList(string? section) => __builder =>
+    {
+        var list = comments.Where(c => c.Section == section).ToList();
+        if (list.Count == 0)
+        {
+            <p class="muted">Noch keine Kommentare.</p>
+        }
+        foreach (var c in list)
+        {
+            <div class="comment"><div class="meta muted">@c.Author · @c.CreatedAt.ToLocalTime().ToString("dd.MM. HH:mm")</div>@c.Text</div>
+        }
+    };
+
+    static string SectionName(string key) => key == "total" ? "Gesamt" : GradingMatrix.Sections.FirstOrDefault(s => s.Key == key)?.Name ?? key;
+
+    static string StatusText(string? status) => status switch
+    {
+        null => "keine",
+        "Draft" => "Entwurf",
+        "Submitted" => "eingereicht",
+        _ => status,
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        disposed = true;
+        if (hub is not null)
+            await hub.DisposeAsync();
+        if (pdfUrl is not null)
+            await JS.InvokeVoidAsync("easyPdf.revoke", pdfUrl);
+    }
+}

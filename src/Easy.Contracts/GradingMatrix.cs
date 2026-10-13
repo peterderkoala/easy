@@ -5,6 +5,9 @@ namespace Easy.Contracts;
 public static class GradingMatrix
 {
     public record Criterion(string Key, string Name, int Max);
+
+    // S06 (issue 37): a remark needs this many characters, whitespace trimmed, before submit.
+    public const int MinRemarkLength = 10;
     public record Section(string Key, string Name, IReadOnlyList<Criterion> Criteria); // Key: versioned like criteria, e.g. fiae-2026:3
 
     // Source: docs/samples/bewertungsmatrix/bewertungsmatrix-merged.md. Each section's criteria add up to 10.

@@ -361,6 +361,8 @@ public class ExaminerGradingTests(KeycloakFixture keycloak, Infra infra) : IAsyn
         var b = Foreign(await Read(examiner)); // A still blinded
         Assert.Equal(JsonValueKind.Null, b.GetProperty("points").ValueKind);
         Assert.Equal(JsonValueKind.Null, b.GetProperty("remarks").ValueKind);
+        Assert.True((await Read(admin)).GetProperty("summaryView").GetBoolean()); // the split view hides "open" (issue 52)
+        Assert.False((await Read(examiner)).GetProperty("summaryView").GetBoolean());
     }
 
     [Fact]
@@ -767,6 +769,37 @@ public class ExaminerGradingTests(KeycloakFixture keycloak, Infra infra) : IAsyn
 
         await accepted.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(["invited Dev Admin", "declined Dev Admin", "invited Dev Admin", "accepted Dev Admin"], events);
+    }
+
+    // Spec 20 (issue 52): what the split view needs beyond specs 13 to 17.
+
+    [Fact]
+    public async Task Read_carries_weights_and_the_score_once_graded()
+    {
+        await Pair();
+        await SubmitSections(examiner, 5, 5, 5, 5, 5);
+        var before = await Read(examiner);
+        Assert.Equal([15, 10, 40, 25, 10], before.GetProperty("weights").EnumerateArray().Select(w => w.GetInt32()));
+        Assert.Equal(JsonValueKind.Null, before.GetProperty("score").ValueKind);
+
+        await SubmitSections(admin, 6, 5, 5, 5, 5);
+
+        Assert.Equal(50.8m, (await Read(examiner)).GetProperty("score").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Examiner_list_shows_active_examiners_by_name_only()
+    {
+        var seeded = await SeedSubmittedGrader(5, 5, 5, 5, 5); // "Dritte Person"
+        await Db(db => db.Examiners.Where(e => e.Id == seeded).ExecuteUpdateAsync(s => s.SetProperty(e => e.Active, false)));
+
+        var response = await Send(HttpMethod.Get, "/api/examiners", examiner);
+
+        response.EnsureSuccessStatusCode();
+        var list = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
+        Assert.Equal(["Dev Admin", "Dev Examiner"], list!.Select(e => e.GetProperty("displayName").GetString()));
+        Assert.Equal(await ExaminerId("admin"), list![0].GetProperty("id").GetGuid());
+        Assert.All(list!, e => Assert.Equal(2, e.EnumerateObject().Count())); // no email, no subject
     }
 
     string Third => $"/api/participants/{participant}/third-examiner";

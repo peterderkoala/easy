@@ -15,7 +15,6 @@ namespace Easy.MainApi.Grading;
 // Every read of points and remarks goes through MayRead (ADR 0005); hub events carry the display name and the change only.
 public static class ExaminerGradingEndpoints
 {
-    public const int MinRemarkLength = 10;
     internal const string GradedFinal = "The documentation is graded; its grading is final.";
     const string NotGrader = "Only active registered examiners grade.",
         Stale = "The grading changed meanwhile; reload it.", Frozen = "A third examiner is invited; both gradings are frozen.";
@@ -58,6 +57,10 @@ public static class ExaminerGradingEndpoints
             return Results.Ok(new
             {
                 Status = participant.DocumentationStatus?.ToString(),
+                Weights = await DocumentationScore.Weights(db, participant), // the client's own total (issue 52)
+                SummaryView = summaryView, // the caller opened it
+                Score = participant.DocumentationStatus is DocumentationStatus.Graded
+                    ? (await db.Grades.FindAsync(participantId, GradeSource.Documentation))?.Value : null,
                 Deviation = deviation is null ? null : new
                 {
                     Sections = grader || adminView ? deviation.Sections : null,
@@ -154,7 +157,7 @@ public static class ExaminerGradingEndpoints
                 return Results.Problem("No documentation uploaded yet.", statusCode: 409);
             using (var key = keys.Open(participant))
                 if (grading is null || !Complete(grading, key))
-                    return Results.Problem($"Every criterion needs points and a remark of at least {MinRemarkLength} characters.", statusCode: 400);
+                    return Results.Problem($"Every criterion needs points and a remark of at least {GradingMatrix.MinRemarkLength} characters.", statusCode: 400);
 
             grading.Status = ExaminerGradingStatus.Submitted;
             grading.UpdatedAt = DateTimeOffset.UtcNow;
@@ -263,7 +266,7 @@ public static class ExaminerGradingEndpoints
     // Whitespace doesn't count towards the remark length.
     static bool Complete(ExaminerGrading grading, DataKey key) =>
         Criteria.Keys.All(k => grading.Criteria.SingleOrDefault(c => c.CriterionKey == k) is { Points: not null, Remark: { } remark }
-            && key.Decrypt(remark).Trim().Length >= MinRemarkLength);
+            && key.Decrypt(remark).Trim().Length >= GradingMatrix.MinRemarkLength);
 
     static IQueryable<ExaminerGrading> Mine(EasyDb db, Guid participantId, Examiner examiner) =>
         db.ExaminerGradings.Where(g => g.ParticipantId == participantId && g.ExaminerId == examiner.Id);

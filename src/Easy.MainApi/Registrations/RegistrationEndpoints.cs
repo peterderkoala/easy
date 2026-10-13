@@ -62,6 +62,10 @@ public static class RegistrationEndpoints
             return Results.NoContent();
         });
 
+        // S05, S06 (issue 52): active examiners to invite as third examiner, names only.
+        examiners.MapGet("/examiners", async (EasyDb db) =>
+            await db.Examiners.Where(e => e.Active).OrderBy(e => e.DisplayName).Select(e => new { e.Id, e.DisplayName }).ToListAsync());
+
         // S02, S05 (issue 51): the client's way to a cycle's documentation list. Newest first: winter (WS2026/27) after summer of a year.
         examiners.MapGet("/cycles", async (EasyDb db) =>
             await db.Cycles.OrderByDescending(c => c.Year).ThenByDescending(c => c.Type == CycleType.Winter)

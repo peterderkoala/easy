@@ -43,12 +43,7 @@
     // Examiners (admins hold the role too) get the cycle list; a failed load just hides it.
     protected override async Task OnInitializedAsync()
     {
-        if (!(await Auth).User.IsInRole("examiner") || !(await Tokens.RequestAccessToken()).TryGetToken(out var token))
-            return;
-        var request = new HttpRequestMessage(HttpMethod.Get, "api/cycles");
-        request.Headers.Authorization = new("Bearer", token.Value);
-        var response = await Http.SendAsync(request);
-        if (response.IsSuccessStatusCode)
+        if ((await Auth).User.IsInRole("examiner") && await Http.Send(Tokens, new(HttpMethod.Get, "api/cycles")) is { IsSuccessStatusCode: true } response)
             cycles = await response.Content.ReadFromJsonAsync<List<Cycle>>();
     }
 }
