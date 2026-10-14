@@ -119,6 +119,11 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    # S02 (issue 28): dead letters in Messaging.ErrorQueue, incl. a failed import's encrypted CSV, expire after 7 days. A policy, not a definitions
+    # file: importing definitions at boot skips creating the RABBITMQ_DEFAULT_USER.
+    post_start: # Docker Compose 2.30+
+      - command: ["sh", "-c", "until rabbitmqctl -q await_startup 2>/dev/null; do sleep 2; done; rabbitmqctl -q set_policy --apply-to queues error-ttl '^error$$' '{\"message-ttl\":604800000}'"]
+        user: rabbitmq # as root, rabbitmqctl would create the Erlang cookie before the server and lock it out
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s

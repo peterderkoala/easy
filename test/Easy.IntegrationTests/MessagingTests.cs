@@ -106,15 +106,28 @@ public class MessagingTests(Infra infra) : IAsyncLifetime
         Assert.Equal(1, await Query(db => db.ProcessedEvents.CountAsync()));
     }
 
+    // Spec 22: second-level retries are on for every host; a message type without an IFailed<T> handler still ends
+    // in the error queue after its retries.
+    [Fact]
+    public async Task Failing_message_without_failed_handler_is_dead_lettered()
+    {
+        await consumer.Services.GetRequiredService<IBus>().SendLocal(new Poison());
+
+        for (var until = DateTime.UtcNow.AddSeconds(20); await infra.ErrorQueueCount(consumer.Services) == 0; await Task.Delay(200))
+            if (DateTime.UtcNow > until)
+                throw new TimeoutException("nothing dead-lettered");
+    }
+
     async Task<WebApplication> StartHost(string? queue)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Configuration["ConnectionStrings:Default"] = database;
         builder.Configuration["Rebus:Rabbit"] = infra.Rabbit.GetConnectionString();
+        builder.Configuration["Rebus:ErrorQueue"] = $"test-error-{Guid.NewGuid():N}";
         builder.AddEasyPlatform().AddEasyMessaging(queue);
         builder.Services.AddEasyData();
-        builder.Services.AddSingleton(received).AddRebusHandler<Handler>();
+        builder.Services.AddSingleton(received).AddRebusHandler<Handler>().AddRebusHandler<PoisonHandler>();
 
         var app = builder.Build();
         using (var scope = app.Services.CreateScope())
@@ -173,5 +186,12 @@ public class MessagingTests(Infra infra) : IAsyncLifetime
                 return;
             received.Handled(new(message, context.Headers.GetValueOrDefault(Headers.CorrelationId), CorrelationId.Current));
         }
+    }
+
+    public record Poison;
+
+    class PoisonHandler : IHandleMessages<Poison>
+    {
+        public Task Handle(Poison message) => throw new InvalidOperationException("always fails");
     }
 }

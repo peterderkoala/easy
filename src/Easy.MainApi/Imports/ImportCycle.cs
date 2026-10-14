@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Rebus.Bus;
 using Rebus.Handlers;
 using Rebus.Pipeline;
+using Rebus.Retry.Simple;
 
 namespace Easy.MainApi.Imports;
 
@@ -26,11 +27,24 @@ public record ImportCycle(Guid JobId, byte[] WrappedKey, int KeyVersion, byte[] 
 }
 
 // S02: all-or-nothing. Dedupe, job outcome, cycle, participants and CycleImported commit in the message's one transaction.
-// ponytail: an unexpected exception (DB down, key mismatch) dead-letters the message after Rebus retries and the job stays
-// Queued; mark it failed from a second-level retry handler when that matters.
-public class ImportCycleHandler(EasyDb db, ParticipantKeys keys, IOptions<ImportOptions> options, IMessageContext context, IBus bus)
-    : IHandleMessages<ImportCycle>
+// An unexpected exception (DB down, key mismatch) ends, after all Rebus retries, in the IFailed handler below.
+public class ImportCycleHandler(EasyDb db, ParticipantKeys keys, IOptions<ImportOptions> options, IMessageContext context, IBus bus,
+    ILogger<ImportCycleHandler> logger) : IHandleMessages<ImportCycle>, IHandleMessages<IFailed<ImportCycle>>
 {
+    // S02 (issue 28): fail the job and return, so Rebus drops the message and no copy of the encrypted CSV reaches the
+    // error queue. Only if this throws too is the message dead-lettered (7-day TTL there).
+    public async Task Handle(IFailed<ImportCycle> failed)
+    {
+        var job = await db.ImportJobs.SingleAsync(j => j.Id == failed.Message.JobId);
+        if (job.Status != ImportStatus.Queued)
+            return;
+        // Type only: an exception message could quote CSV values. Rebus logs each attempt's exception in full.
+        logger.LogError("Import job {JobId} failed after all retries: {ExceptionType}", job.Id, failed.Exceptions.LastOrDefault()?.Type);
+        job.Status = ImportStatus.Failed;
+        job.Errors = [new(0, "", "Import failed. Please upload the file again.")];
+        await db.SaveChangesAsync();
+    }
+
     public async Task Handle(ImportCycle message)
     {
         context.UseOutboxTransaction(db);

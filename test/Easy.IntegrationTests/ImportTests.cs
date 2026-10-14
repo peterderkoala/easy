@@ -172,6 +172,31 @@ public class ImportTests(KeycloakFixture keycloak, Infra infra) : IAsyncLifetime
         Assert.Equal(["SS2026-001", "SS2026-002"], await Db(db => db.Participants.OrderBy(p => p.DisplayNo).Select(p => p.DisplayNo).ToListAsync()));
     }
 
+    // Spec 22 (issue 28): after all Rebus retries the second-level handler fails the job and drops the message,
+    // so no copy of the encrypted CSV stays in the error queue.
+    [Fact]
+    public async Task Import_failing_every_attempt_fails_job_and_keeps_no_copy()
+    {
+        var jobId = Guid.NewGuid();
+        await Db(async db =>
+        {
+            db.ImportJobs.Add(new() { Id = jobId, CycleType = CycleType.Winter, Year = 2026, Status = ImportStatus.Queued });
+            return await db.SaveChangesAsync();
+        });
+        var keys = mainApi.Services.GetRequiredService<ParticipantKeys>();
+        var message = ImportCycle.Create(jobId, Encoding.UTF8.GetBytes(ValidCsv), keys) with { KeyVersion = 99 }; // cannot be unwrapped
+
+        await mainApi.Services.GetRequiredService<IBus>().SendLocal(message);
+
+        var job = await Poll(jobId);
+        Assert.Equal("Failed", job.GetProperty("status").GetString());
+        var errors = job.GetProperty("errors").EnumerateArray()
+            .Select(e => (e.GetProperty("row").GetInt32(), e.GetProperty("column").GetString(), e.GetProperty("message").GetString()));
+        Assert.Equal([(0, "", "Import failed. Please upload the file again.")], errors);
+        await Task.Delay(TimeSpan.FromSeconds(1)); // the failed delivery is acknowledged after the commit
+        Assert.Equal(0u, await infra.ErrorQueueCount(mainApi.Services));
+    }
+
     [Fact]
     public async Task Stored_name_is_ciphertext_in_database()
     {

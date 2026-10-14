@@ -7,7 +7,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using RabbitMQ.Client;
 using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
 
@@ -85,12 +88,22 @@ public sealed class Infra : IAsyncLifetime
             .UseSetting("ConnectionStrings:Default", database ?? NewDatabase())
             .UseSetting("Rebus:Rabbit", Rabbit.GetConnectionString())
             .UseSetting("Rebus:Queue", $"test-{Guid.NewGuid():N}")
+            .UseSetting("Rebus:ErrorQueue", $"test-error-{Guid.NewGuid():N}")
             .UseSetting("MasterSecretFile", MasterSecretFile)
             .UseSetting("Seaweed:Endpoint", SeaweedS3)
             .UseSetting("Seaweed:AccessKey", "test-access")
             .UseSetting("Seaweed:SecretKey", "test-secret")
             .UseSetting("Smtp:Host", Mailpit.Hostname)
             .UseSetting("Smtp:Port", Mailpit.GetMappedPublicPort(1025).ToString()));
+
+    // Messages in the host's error queue (Rebus:ErrorQueue); declares it like Rebus does if it does not exist yet.
+    public async Task<uint> ErrorQueueCount(IServiceProvider host)
+    {
+        string queue = host.GetRequiredService<IConfiguration>()["Rebus:ErrorQueue"]!;
+        await using var connection = await new ConnectionFactory { Uri = new(Rabbit.GetConnectionString()) }.CreateConnectionAsync();
+        await using var channel = await connection.CreateChannelAsync();
+        return (await channel.QueueDeclareAsync(queue, durable: true, exclusive: false, autoDelete: false)).MessageCount;
+    }
 
     public Task InitializeAsync()
     {

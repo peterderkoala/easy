@@ -27,6 +27,7 @@ public static class Messaging
     // ponytail: one table for all hosts on the shared database, so any host's forwarder may send another's rows;
     // harmless with idempotent consumers, per-host tables if forwarding order or load ever matters
     public const string OutboxTable = "rebus_outbox"; // created by Rebus on start
+    public const string ErrorQueue = "error"; // shared by all hosts; the compose post_start policy matches this name (7-day TTL)
 
     // queue null = one-way client (publish only). Rebus:Queue overrides the queue name; tests give each host its own.
     // Never set it for more than one host in Compose, or they would share one input queue.
@@ -46,6 +47,9 @@ public static class Messaging
                     else t.UseRabbitMq(rabbit, config["Rebus:Queue"] ?? queue);
                 })
                 .Outbox(o => o.StoreInPostgreSql(database, OutboxTable))
+                // Rebus:ErrorQueue lets tests give each host its own.
+                // Second-level retries: an IFailed<T> handler may end a failed message; without one it is dead-lettered as before.
+                .Options(o => o.RetryStrategy(errorQueueName: config["Rebus:ErrorQueue"] ?? ErrorQueue, secondLevelRetriesEnabled: true))
                 .Options(o => o.Decorate<IPipeline>(c => new PipelineStepInjector(c.Get<IPipeline>())
                     .OnReceive(new IncomingCorrelation(), PipelineRelativePosition.Before, typeof(DefaultRetryStep))
                     .OnSend(new OutgoingCorrelation(), PipelineRelativePosition.Before, typeof(FlowCorrelationIdStep))));
