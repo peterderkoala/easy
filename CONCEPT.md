@@ -201,7 +201,7 @@ Easy replaces distributed manual coordination between IHK examiners with one sha
 - `[DECIDED]` Validation is all-or-nothing: required fields non-empty, ID is an integer, no duplicate IDs inside the file, at most 500 rows and 1 MB. Any error means nothing is imported; the job ends as failed with row errors (row number, column, message) shown to the admin, who uploads a corrected file. A valid file creates the cycle and all participants in one transaction with the outbox event. The import job has an ID, so a redelivered message does not create a second cycle.
 - Import runs asynchronously via RabbitMQ (Rebus), not synchronously in the request.
 - `[DECIDED]` A cycle is unique per type and year. An import for an existing cycle is rejected. Participants missing from an import are added manually to the existing cycle, not by a second import.
-- `[OPEN]` Retention of the encrypted CSV in the Rebus error queue after a failed import (S10, issue 28).
+- `[DECIDED]` Failed import (issue 28): when an import message fails after all Rebus retries, a second-level handler marks the job failed ("Import failed. Please upload the file again.") and drops the message, so no copy of the encrypted CSV is kept. Only if that handler fails too does the message reach the error queue, where a RabbitMQ policy expires every dead letter (all hosts, shared `error` queue) after 7 days.
 - Live progress via SignalR: nice-to-have. At max ~120 rows, long waits are not expected unless AI tooling is added to the import.
 
 ### Participant ID
@@ -562,7 +562,6 @@ One status per participant, split into four areas:
 - Later competence-based examiner assignment via tags (S03, S05).
 - Further user management features (S05).
 - Success criteria for Easy (S01).
-- Retention of the encrypted import CSV in the Rebus error queue (S02, issue 28).
 - Re-upload of documents and its effect on the status (S06, issue 29); documentation re-upload decided in issue 40.
 - CSV: uniqueness of the identification number within a cycle, and whether one person can appear with two numbers (S02).
 - Auditability: scope of logged operations (S11).
