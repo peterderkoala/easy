@@ -229,6 +229,7 @@ Easy replaces distributed manual coordination between IHK examiners with one sha
 
 - Participant submits a project idea.
 - PDF upload, similar to documentation (S06).
+- `[OPEN]` Re-upload of the application PDF after rejection or approval with conditions, and its effect on the application status (S10).
 - PDF can be commented. No scored segments.
 
 ### Approval
@@ -346,8 +347,7 @@ One status per participant, split into four areas:
 - Easy needs an upload function for the externally downloaded PDF.
 - `[CLARIFICATION]` `[DECIDED]` Hard limit: 15 MB by default, configurable through an environment variable. PDF only (magic-bytes check). Enforced at the YARP upload route, Kestrel and MainApi, all reading the same setting. Uploads go through MainApi (proxy), which applies SSE-C with the unwrapped participant key.
 - `[DECIDED]` Every role may upload documents (examiners and admins; admins hold the examiner role). Service accounts may not.
-- `[OPEN]` Re-upload: which re-upload is meant (application vs documentation, before vs after grading) and its effect on the status (S10, issue 29).
-  - `[DECIDED]` Documentation re-upload (issue 40): allowed while the documentation status is submitted. It adds a new `Document`, and the split view shows the latest one. Once in progress or graded, MainApi rejects the upload with 409. Application PDF and history stay open in issue 29.
+- `[DECIDED]` Documentation re-upload (issues 40, 29): allowed while the documentation status is submitted; the status stays submitted. The new upload replaces the old one: the old `Document` row is deleted in the same transaction and its object afterwards (best effort), so a wrongly uploaded PDF of another person does not linger. At most one documentation per participant. Each upload, a replacement too, sends the same upload mail (S12). Once in progress or graded, MainApi rejects the upload with 409. `Document` records no kind and no uploader until a second document kind exists. Application PDF re-upload is decided with the application-approval slice (S03), the grading document with its own slice.
 - Storage: S3-compatible object storage, decided on SeaweedFS (Apache-2.0, lightweight, Docker-friendly).
   - Objects encrypted with the participant-specific key (SSE-C). No separate key.
   - Deletion concept (S11): unreadable by key deletion.
@@ -562,7 +562,7 @@ One status per participant, split into four areas:
 - Later competence-based examiner assignment via tags (S03, S05).
 - Further user management features (S05).
 - Success criteria for Easy (S01).
-- Re-upload of documents and its effect on the status (S06, issue 29); documentation re-upload decided in issue 40.
+- Re-upload of the application PDF and its effect on the application status (S03).
 - CSV: uniqueness of the identification number within a cycle, and whether one person can appear with two numbers (S02).
 - Auditability: scope of logged operations (S11).
 - GDPR: concrete requirements for data storage and audit log (S11).
